@@ -1,10 +1,10 @@
 # LearnMultiplyByHand
 A neural network is teached multiplication by hand
 
-Some work was done trying to "Learning to Execute" (https://arxiv.org/abs/1410.4615). Trying to break the problems down it seems,
+Some previous work was done e.g. "Learning to Execute" (https://arxiv.org/abs/1410.4615). Trying to break the problem down it seems,
 that even simple multiplication is not learned with high accuracy.
 
-Therefor we try to teach multiplication by hand to a neural network:
+Therefore we try to teach multiplication by hand to a neural network:
 e.g.
 
     6046588*80647=  
