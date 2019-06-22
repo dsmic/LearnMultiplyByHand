@@ -481,6 +481,6 @@ for inn,out in valid_data_generator.generate():
     else:
         print(o_str, p_str)
     ccc +=1
-    if ccc >=100:
+    if ccc >=1000:
         print("correct: "+str(sum_correct)+"/"+str(ccc)+"="+str(sum_correct/ccc))
         break

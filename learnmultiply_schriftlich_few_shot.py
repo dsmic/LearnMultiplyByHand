@@ -23,6 +23,9 @@ from keras.optimizers import Adam, SGD, RMSprop, Nadam
 from keras.callbacks import ModelCheckpoint
 import keras.backend
 
+import copy
+
+
 # uncomment the following to disable CuDNN support
 #os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 #LSTM_use = LSTM
@@ -169,14 +172,31 @@ else:
     lstm1b = Lambda(attentions_layer)(lstm1)
   else:
     lstm1b = lstm1
-  lstm4 = LSTM_use(hidden_size, return_sequences=True)(lstm1b)
+  lstm4 = LSTM_use(hidden_size, return_sequences=False)(lstm1b)
 #  x1 = Dense(hidden_size, activation='relu')(lstm4)
 #  x2 = Dense(hidden_size, activation='relu')(x1)
 #  x3 = Dense(hidden_size, activation='relu')(x2)
-  x = Dense(max_output)(lstm4)
-  predictions = Activation('softmax')(x)
-  model = Model(inputs=inputs, outputs=predictions)
+#  x = Dense(max_output)(lstm4)
+#  predictions = Activation('softmax')(x)
+  model = Model(inputs=inputs, outputs=lstm4)
+  
+  input1 = Input(shape=(None,None))
+  input2 = Input(shape=(None,None))
 
+  encoded_l = model(input1)
+  encoded_r = model(input2)
+    
+  # Add a customized layer to compute the absolute difference between the encodings
+  L1_layer = Lambda(lambda tensors:keras.backend.abs(tensors[0] - tensors[1]))
+  L1_distance = L1_layer([encoded_l, encoded_r])
+    
+  # Add a dense layer with a sigmoid unit to generate the similarity score
+  prediction = Dense(1,activation='sigmoid')(L1_distance)
+    
+  # Connect the inputs with the outputs
+  siamese_net = Model(inputs=[input1,input2],outputs=prediction)
+
+  
 
 
 
@@ -188,10 +208,12 @@ print(a[startline+1:startline+2])
 optimizer = RMSprop(lr=args.lr, rho=0.9, epsilon=None, decay=0)
 
 print("learning rate",keras.backend.eval(optimizer.lr))
-model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['categorical_accuracy'])
+#model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['categorical_accuracy'])
 
-print(model.summary())
+#print(model.summary())
 
+siamese_net.compile(loss='binary_crossentropy', optimizer=optimizer, metrics=['binary_accuracy'])
+print(siamese_net.summary())
 max_length = -1
 
 def str_to_int_list(x, ml):
@@ -446,19 +468,52 @@ class KerasBatchGenerator(object):
             tmp_y = np.array([str_to_int_list(out, max_length)], dtype=int).reshape((1, -1))
             #print(tmp_x.shape, tmp_y.shape)
             
-            yield tmp_x, to_categorical(tmp_y, num_classes=max_output)
+            yield tmp_x, tmp_y
 
 
 train_data_generator = KerasBatchGenerator(args.train_data_num, vocab)
 valid_data_generator = KerasBatchGenerator(0, vocab)
 
+class KerasModifiedBatchGenerator(object):
+    def __init__(self, intern_generator,number_of_samples = 10):
+        self.intern_generator = intern_generator.generate()
+        self.up_to_now = []
+        for _ in range(number_of_samples):
+            xxx,yyy = next(self.intern_generator)
+            print ("---",xxx.shape,yyy.shape)
+            for lll in range(xxx.shape[2]):
+                self.up_to_now.append((xxx[:,:,:lll+1],yyy[:,lll]))
+            
+    def generate(self):
+        #up_to_now = copy.deepcopy(self.up_to_now)
+        while True:    
+            self.l = 0 #thread safety
+            while self.l <len(self.up_to_now):
+                self.k = 0
+                while self.k < self.l+1:
+                    i1, r1 = self.up_to_now[self.k]
+                    i2, r2 = self.up_to_now[self.l]
+                    #print(r1,r2)
+                    if (r1 == r2):
+                        yield [i1,i2],[1]
+                    else:
+                        yield [i1,i2],[0]
+                    self.k += 1
+                self.l += 1
+
+modified_generator =  KerasModifiedBatchGenerator(valid_data_generator)
+test_modified = modified_generator.generate()
+
+for _ in range(10):
+    xxx,yyy = next(test_modified)
+    print(xxx[0].shape,xxx[1].shape,yyy)
 
 print("starting")
 checkpointer = ModelCheckpoint(filepath='checkpoints/model-{epoch:02d}.hdf5', verbose=1)
 
 num_epochs = args.epochs
 
-history = model.fit_generator(train_data_generator.generate(), args.epoch_size, num_epochs, validation_data=valid_data_generator.generate(), validation_steps=args.epoch_size / 10, callbacks=[checkpointer])
+history = siamese_net.fit_generator(test_modified, args.epoch_size, num_epochs, validation_data=test_modified, validation_steps=args.epoch_size / 10, callbacks=[checkpointer])
 
 model.save(args.final_name+'.hdf5')
 print(history.history.keys())
