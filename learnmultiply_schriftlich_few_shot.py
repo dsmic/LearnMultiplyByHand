@@ -491,13 +491,26 @@ class KerasPairBatchGenerator(object):
             self.l = randint(0,len(self.up_to_now)-1)
             self.k = randint(0,len(self.up_to_now)-1)
             i1, r1 = self.up_to_now[self.k]
-            i2, r2 = self.up_to_now[self.l]
-            if self.k != self.l:
-                yield [i2,i2],[1] # same is ok train 50% of cases
-                if (r1 == r2):
-                    yield [i1,i2],[1]
-                else:
-                    yield [i1,i2],[0]
+            r2 = -1
+            while r1 != r2: # and self.l != self.k:
+                self.l = randint(0,len(self.up_to_now)-1)
+                i2, r2 = self.up_to_now[self.l]
+            yield [i1,i2],[1]
+            while r1 == r2: # and self.l != self.k:
+                self.l = randint(0,len(self.up_to_now)-1)
+                i2, r2 = self.up_to_now[self.l]
+            yield [i1,i2],[0]
+            
+#            if self.k != self.l:
+#                #yield [i2,i2],[1] # same is ok train 50% of cases
+#                if (r1 == r2):
+#                    yield [i1,i2],[1]
+#                else:
+#                    yield [i1,i2],[0]
+
+#                if (r1 != r2):
+#                    yield [i2,i2],[1] # same is ok train 50% of cases, do not use other equal to train
+#                    yield [i1,i2],[0]
 
     def generate_ordered(self):
         #up_to_now = copy.deepcopy(self.up_to_now)
@@ -564,8 +577,8 @@ for inn,out in valid_data_generator.generate():
         max_pred = 0
         out_pred = 0
         for inn2, out2 in pair_generator.generate_one_set():
-            pred = siamese_net.predict([inn,inn2])[0]
-            #print("pred",yyy, out2, pred)
+            pred = siamese_net.predict([xxx,inn2])[0]
+            #print("pred",yyy, out2, pred, yyy[0] == out2[0])
             if pred[0] > max_pred:
                 max_pred = pred[0]
                 out_pred = out2[0]
