@@ -127,8 +127,8 @@ hidden_size = args.hidden_size
 
 if args.pretrained_name is not None:
   from keras.models import load_model
-  model = load_model(args.pretrained_name)
-  print("loaded model",model.layers[0].input_shape[1])
+  siamese_net = load_model(args.pretrained_name, custom_objects = { "keras": keras })
+  #print("loaded model",model.layers[0].input_shape[1])
 #  ml = model.layers[0].input_shape[1]
 #  if (ml != max_length):
 #    print("model length",ml,"different from data length",max_length)
@@ -474,17 +474,32 @@ class KerasBatchGenerator(object):
 train_data_generator = KerasBatchGenerator(args.train_data_num, vocab)
 valid_data_generator = KerasBatchGenerator(0, vocab)
 
+
 class KerasModifiedBatchGenerator(object):
     def __init__(self, intern_generator,number_of_samples = 10):
         self.intern_generator = intern_generator.generate()
         self.up_to_now = []
         for _ in range(number_of_samples):
             xxx,yyy = next(self.intern_generator)
-            print ("---",xxx.shape,yyy.shape)
+            #print ("---",xxx.shape,yyy.shape)
             for lll in range(xxx.shape[2]):
                 self.up_to_now.append((xxx[:,:,:lll+1],yyy[:,lll]))
             
     def generate(self):
+        #up_to_now = copy.deepcopy(self.up_to_now)
+        while True:    
+            self.l = randint(0,len(self.up_to_now)-1)
+            self.k = randint(0,len(self.up_to_now)-1)
+            i1, r1 = self.up_to_now[self.k]
+            i2, r2 = self.up_to_now[self.l]
+            if self.k != self.l:
+                yield [i2,i2],[1] # same is ok train 50% of cases
+                if (r1 == r2):
+                    yield [i1,i2],[1]
+                else:
+                    yield [i1,i2],[0]
+
+    def generate_ordered(self):
         #up_to_now = copy.deepcopy(self.up_to_now)
         while True:    
             self.l = 0 #thread safety
@@ -508,12 +523,17 @@ for _ in range(10):
     xxx,yyy = next(test_modified)
     print(xxx[0].shape,xxx[1].shape,yyy)
 
+
+modified_generator_valid =  KerasModifiedBatchGenerator(valid_data_generator,100)
+test_modified_valid = modified_generator_valid.generate()
+
+
 print("starting")
 checkpointer = ModelCheckpoint(filepath='checkpoints/model-{epoch:02d}.hdf5', verbose=1)
 
 num_epochs = args.epochs
 
-history = siamese_net.fit_generator(test_modified, args.epoch_size, num_epochs, validation_data=test_modified, validation_steps=args.epoch_size / 10, callbacks=[checkpointer])
+history = siamese_net.fit_generator(test_modified, args.epoch_size, num_epochs, validation_data=test_modified_valid, validation_steps=args.epoch_size / 10, callbacks=[checkpointer])
 
 model.save(args.final_name+'.hdf5')
 print(history.history.keys())
