@@ -54,7 +54,7 @@ parser.add_argument('--gpu_mem', dest='gpu_mem',  type=float, default=0.5)
 #parser.add_argument('--rand_atoms', dest='rand_atoms', action='store_true')
 parser.add_argument('--float_type', dest='float_type',  type=str, default='float32')
 parser.add_argument('--epoch_size', dest='epoch_size',  type=int, default=100000)
-parser.add_argument('--train_data_num', dest='train_data_num',  type=int, default=1000)
+parser.add_argument('--train_data_num', dest='train_data_num',  type=int, default=10)
 
 args = parser.parse_args()
 
@@ -471,11 +471,11 @@ class KerasBatchGenerator(object):
             yield tmp_x, tmp_y
 
 
-train_data_generator = KerasBatchGenerator(args.train_data_num, vocab)
+#train_data_generator = KerasBatchGenerator(args.train_data_num, vocab)
 valid_data_generator = KerasBatchGenerator(0, vocab)
 
 
-class KerasModifiedBatchGenerator(object):
+class KerasPairBatchGenerator(object):
     def __init__(self, intern_generator,number_of_samples = 10):
         self.intern_generator = intern_generator.generate()
         self.up_to_now = []
@@ -502,30 +502,38 @@ class KerasModifiedBatchGenerator(object):
     def generate_ordered(self):
         #up_to_now = copy.deepcopy(self.up_to_now)
         while True:    
-            self.l = 0 #thread safety
-            while self.l <len(self.up_to_now):
-                self.k = 0
-                while self.k < self.l+1:
-                    i1, r1 = self.up_to_now[self.k]
-                    i2, r2 = self.up_to_now[self.l]
+            self.l1 = 0 #thread safety
+            while self.l1 <len(self.up_to_now):
+                self.k1 = 0
+                while self.k1 < len(self.up_to_now):
+                    i1, r1 = self.up_to_now[self.k1]
+                    i2, r2 = self.up_to_now[self.l1]
                     #print(r1,r2)
                     if (r1 == r2):
                         yield [i1,i2],[1]
                     else:
                         yield [i1,i2],[0]
-                    self.k += 1
-                self.l += 1
+                    self.k1 += 1
+                self.l1 += 1
 
-modified_generator =  KerasModifiedBatchGenerator(valid_data_generator)
-test_modified = modified_generator.generate()
+    def generate_one_set(self): #only generate every from the set in KerasBatchGenerator format
+        self.k2 = 0
+        while self.k2 < len(self.up_to_now):
+            yield self.up_to_now[self.k2]
+            #print(r1,r2)
+            self.k2 += 1
+
+
+pair_generator =  KerasPairBatchGenerator(valid_data_generator,args.train_data_num)
+test_pair = pair_generator.generate()
 
 for _ in range(10):
-    xxx,yyy = next(test_modified)
+    xxx,yyy = next(test_pair)
     print(xxx[0].shape,xxx[1].shape,yyy)
 
 
-modified_generator_valid =  KerasModifiedBatchGenerator(valid_data_generator,100)
-test_modified_valid = modified_generator_valid.generate()
+pair_generator_valid =  KerasPairBatchGenerator(valid_data_generator,100)
+test_pair_valid = pair_generator_valid.generate()
 
 
 print("starting")
@@ -533,9 +541,9 @@ checkpointer = ModelCheckpoint(filepath='checkpoints/model-{epoch:02d}.hdf5', ve
 
 num_epochs = args.epochs
 
-history = siamese_net.fit_generator(test_modified, args.epoch_size, num_epochs, validation_data=test_modified_valid, validation_steps=args.epoch_size / 10, callbacks=[checkpointer])
+history = siamese_net.fit_generator(test_pair, args.epoch_size, num_epochs, validation_data=test_pair_valid, validation_steps=args.epoch_size / 10, callbacks=[checkpointer])
 
-model.save(args.final_name+'.hdf5')
+siamese_net.save(args.final_name+'.hdf5')
 print(history.history.keys())
 
 def list_to_string(prediction):
@@ -548,7 +556,23 @@ def list_to_string(prediction):
 sum_correct = 0
 ccc = 0
 for inn,out in valid_data_generator.generate():
-    prediction = model.predict(inn)[0]
+    print("both equal",siamese_net.predict([inn,inn])[0])
+    for lll in range(inn.shape[2]):
+        xxx = inn[:,:,:lll+1]
+        yyy = out[:,lll]
+        predictions = []
+        max_pred = 0
+        out_pred = 0
+        for inn2, out2 in pair_generator.generate_one_set():
+            pred = siamese_net.predict([inn,inn2])[0]
+            #print("pred",yyy, out2, pred)
+            if pred[0] > max_pred:
+                max_pred = pred[0]
+                out_pred = out2[0]
+            predictions.append((out2, pred))
+        print("***********************************************************")
+        print(xxx, yyy, max_pred, out_pred)
+    break
     o_str = list_to_string(out[0])
     p_str = list_to_string(prediction)
     if o_str == p_str:
