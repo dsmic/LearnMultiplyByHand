@@ -55,6 +55,7 @@ parser.add_argument('--gpu_mem', dest='gpu_mem',  type=float, default=0.5)
 parser.add_argument('--float_type', dest='float_type',  type=str, default='float32')
 parser.add_argument('--epoch_size', dest='epoch_size',  type=int, default=100000)
 parser.add_argument('--train_data_num', dest='train_data_num',  type=int, default=10)
+parser.add_argument('--only_exact', dest='only_exact', action='store_true')
 
 args = parser.parse_args()
 
@@ -491,11 +492,16 @@ class KerasPairBatchGenerator(object):
             self.l = randint(0,len(self.up_to_now)-1)
             self.k = randint(0,len(self.up_to_now)-1)
             i1, r1 = self.up_to_now[self.k]
-            r2 = -1
-            while r1 != r2: # and self.l != self.k:
-                self.l = randint(0,len(self.up_to_now)-1)
-                i2, r2 = self.up_to_now[self.l]
-            yield [i1,i2],[1]
+            
+            if args.only_exact:
+                yield [i1,i1],[1]
+            else:
+                r2 = -1
+                while r1 != r2: # and self.l != self.k:
+                    self.l = randint(0,len(self.up_to_now)-1)
+                    i2, r2 = self.up_to_now[self.l]
+                yield [i1,i2],[1]
+            r2 = r1
             while r1 == r2: # and self.l != self.k:
                 self.l = randint(0,len(self.up_to_now)-1)
                 i2, r2 = self.up_to_now[self.l]

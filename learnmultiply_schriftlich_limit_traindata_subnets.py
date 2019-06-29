@@ -122,6 +122,21 @@ def attentions_layer(x):
 #  x = keras.backend.print_tensor(x, str(x))
   return x
 
+def select_subnet_layer(x):
+    # the last in x are the select, before is divided into parts
+    #from keras import backend as K
+    x_select = x[:,:,-args.lstm_num:]
+    x_data = x[:,:,:-args.lstm_num]
+    print("x_select",x_select.shape)
+    size_of_out = x_data.shape[2] // args.lstm_num
+    out = x_data[:,:,:size_of_out]
+    out = 0 * out
+    for i in range(args.lstm_num):
+        out += x_data[:,:,(i * size_of_out):((i+1)*size_of_out)]* x_select[:,:,i:i+1]
+    print("out",out.shape)
+    print("x",x.shape)
+    return out
+
 hidden_size = args.hidden_size
 
 if args.pretrained_name is not None:
@@ -146,23 +161,11 @@ else:
   x1 = Lambda(lambda x : x[:,1,:])(inputs)
   x2 = Lambda(lambda x : x[:,2,:])(inputs)
   x3 = Lambda(lambda x : x[:,3,:])(inputs)
-#  x4 = Lambda(lambda x : x[:,4,:])(inputs)
-#  x5 = Lambda(lambda x : x[:,5,:])(inputs)
-#  x6 = Lambda(lambda x : x[:,6,:])(inputs)
-#  x7 = Lambda(lambda x : x[:,7,:])(inputs)
-#  x8 = Lambda(lambda x : x[:,8,:])(inputs)
-#  x9 = Lambda(lambda x : x[:,9,:])(inputs)
+
   embeds0 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=not args.embed_not_trainable)(x0)
   embeds1 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=not args.embed_not_trainable)(x1)
   embeds2 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=not args.embed_not_trainable)(x2)
   embeds3 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=not args.embed_not_trainable)(x3)
-#  embeds4 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=True)(x4)
-#  embeds5 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=True)(x5)
-#  embeds6 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=True)(x6)
-#  embeds7 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=True)(x7)
-#  embeds8 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=True)(x8)
-#  embeds9 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=True)(x9)
-  
 
   print("x0",x0.shape)
   conc = Concatenate()([embeds0,embeds1,embeds2,embeds3])#,embeds4,embeds5])#,embeds6,embeds7,embeds8,embeds9])
@@ -182,7 +185,10 @@ else:
 #  x3 = Dense(hidden_size, activation='relu')(x2)
   cc = Concatenate()(lstm4)
   print("cc",cc.shape)
-  x = Dense(max_output)(cc)
+  s_select = Dense(args.lstm_num,activation='softmax')(cc)
+  cc2 = Concatenate()([cc,s_select])
+  ccc = Lambda(select_subnet_layer)(cc2)
+  x = Dense(max_output)(ccc)
   predictions = Activation('softmax')(x)
   model = Model(inputs=inputs, outputs=predictions)
 

@@ -52,6 +52,7 @@ parser.add_argument('--gpu_mem', dest='gpu_mem',  type=float, default=0.5)
 parser.add_argument('--float_type', dest='float_type',  type=str, default='float32')
 parser.add_argument('--epoch_size', dest='epoch_size',  type=int, default=100000)
 parser.add_argument('--train_data_num', dest='train_data_num',  type=int, default=1000)
+parser.add_argument('--only_one_LSTM', dest='only_one_LSTM', action='store_true')
 
 args = parser.parse_args()
 
@@ -164,7 +165,10 @@ else:
 
   print("k",x0.shape)
   conc = Concatenate()([embeds0,embeds1,embeds2,embeds3])#,embeds4,embeds5])#,embeds6,embeds7,embeds8,embeds9])
-  lstm1 = LSTM_use(hidden_size, return_sequences=True)(conc)
+  if args.only_one_LSTM:
+      lstm1 = conc
+  else:
+      lstm1 = LSTM_use(hidden_size, return_sequences=True)(conc)
   if args.attention:
     lstm1b = Lambda(attentions_layer)(lstm1)
   else:
