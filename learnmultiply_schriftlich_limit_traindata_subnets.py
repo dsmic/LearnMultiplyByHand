@@ -54,6 +54,7 @@ parser.add_argument('--float_type', dest='float_type',  type=str, default='float
 parser.add_argument('--epoch_size', dest='epoch_size',  type=int, default=100000)
 parser.add_argument('--train_data_num', dest='train_data_num',  type=int, default=1000)
 parser.add_argument('--only_one_LSTM', dest='only_one_LSTM', action='store_true')
+parser.add_argument('--load_weights_name', dest='load_weights_name',  type=str, default=None)
 
 args = parser.parse_args()
 
@@ -183,9 +184,12 @@ else:
 #  x1 = Dense(hidden_size, activation='relu')(lstm4)
 #  x2 = Dense(hidden_size, activation='relu')(x1)
 #  x3 = Dense(hidden_size, activation='relu')(x2)
-  cc = Concatenate()(lstm4)
+  if args.lstm_num > 1:
+      cc = Concatenate()(lstm4)
+  else:
+      cc = lstm4[0]
   print("cc",cc.shape)
-  s_select = Dense(args.lstm_num,activation='softmax')(cc)
+  s_select = Dense(args.lstm_num, activation='softmax', name='dense_selector_'+str(args.lstm_num))(cc)
   cc2 = Concatenate()([cc,s_select])
   ccc = Lambda(select_subnet_layer)(cc2)
   x = Dense(max_output)(ccc)
@@ -206,6 +210,9 @@ print("learning rate",keras.backend.eval(optimizer.lr))
 model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['categorical_accuracy'])
 
 print(model.summary())
+
+if args.load_weights_name:
+    model.load_weights(args.load_weights_name, by_name=True)
 
 max_length = -1
 
@@ -476,6 +483,7 @@ num_epochs = args.epochs
 history = model.fit_generator(train_data_generator.generate(), args.epoch_size, num_epochs, validation_data=valid_data_generator.generate(), validation_steps=args.epoch_size / 10, callbacks=[checkpointer])
 
 model.save(args.final_name+'.hdf5')
+model.save_weights(args.final_name+'-weights.hdf5')
 print(history.history.keys())
 
 def list_to_string(prediction):
