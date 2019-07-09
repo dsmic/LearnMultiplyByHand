@@ -128,7 +128,7 @@ hidden_size = args.hidden_size
 
 if args.pretrained_name is not None:
   from keras.models import load_model
-  siamese_net = load_model(args.pretrained_name, custom_objects = { "keras": keras })
+  siamese_net = load_model(args.pretrained_name, custom_objects = { "keras": keras , "args":args})
   #print("loaded model",model.layers[0].input_shape[1])
 #  ml = model.layers[0].input_shape[1]
 #  if (ml != max_length):
