@@ -30,7 +30,6 @@ import keras.backend
 
 
 import argparse
-from random import shuffle
 
 parser = argparse.ArgumentParser(description='train recurrent net.')
 parser.add_argument('--lr', dest='lr',  type=float, default=1e-3)
@@ -39,20 +38,17 @@ parser.add_argument('--hidden_size', dest='hidden_size',  type=int, default=50)
 parser.add_argument('--final_name', dest='final_name',  type=str, default='final_model')
 parser.add_argument('--pretrained_name', dest='pretrained_name',  type=str, default=None)
 parser.add_argument('--attention', dest='attention', action='store_true')
-#parser.add_argument('--depth', dest='depth',  type=int, default=3)
 parser.add_argument('--debug', dest='debug', action='store_true')
 parser.add_argument('--embed_not_trainable', dest='embed_not_trainable', action='store_true')
-#parser.add_argument('--only_one', dest='only_one', action='store_true')
 parser.add_argument('--revert', dest='revert', action='store_true')
 #parser.add_argument('--add_history', dest='add_history', action='store_true')
 parser.add_argument('--RNN_type', dest='RNN_type',  type=str, default='CuDNNLSTM')
 parser.add_argument('--gpu_mem', dest='gpu_mem',  type=float, default=0.5)
-#parser.add_argument('--fill_vars_with_atoms', dest='fill_vars_with_atoms', action='store_true')
-#parser.add_argument('--rand_atoms', dest='rand_atoms', action='store_true')
 parser.add_argument('--float_type', dest='float_type',  type=str, default='float32')
 parser.add_argument('--epoch_size', dest='epoch_size',  type=int, default=100000)
 parser.add_argument('--train_data_num', dest='train_data_num',  type=int, default=1000)
-parser.add_argument('--only_one_LSTM', dest='only_one_LSTM', action='store_true')
+parser.add_argument('--two_LSTM', dest='two_LSTM', action='store_true')
+parser.add_argument('--dense_size', dest='dense_size',  type=int, default=50)
 
 args = parser.parse_args()
 
@@ -63,8 +59,6 @@ config.gpu_options.per_process_gpu_memory_fraction = args.gpu_mem
 set_session(tf.Session(config=config))
 
 keras.backend.set_floatx(args.float_type)
-
-
 
 RNN_type = {}
 RNN_type['CuDNNLSTM'] = CuDNNLSTM
@@ -162,10 +156,14 @@ else:
 #  embeds8 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=True)(x8)
 #  embeds9 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=True)(x9)
   
+  embed_conc = Concatenate()([embeds0,embeds2,embeds1,embeds3])
+  x1 = Dense(args.dense_size,activation='relu')(embed_conc)
+  conc = Dense(args.dense_size,activation='relu')(x1)
+#  conc = Concatenate()([x2,lstm4])
 
   print("k",x0.shape)
-  conc = Concatenate()([embeds0,embeds1,embeds2,embeds3])#,embeds4,embeds5])#,embeds6,embeds7,embeds8,embeds9])
-  if args.only_one_LSTM:
+#  conc = Concatenate()([embeds0,embeds1,embeds2,embeds3])#,embeds4,embeds5])#,embeds6,embeds7,embeds8,embeds9])
+  if not args.two_LSTM:
       lstm1 = conc
   else:
       lstm1 = LSTM_use(hidden_size, return_sequences=True)(conc)
@@ -177,9 +175,7 @@ else:
 #  x1 = Dense(hidden_size, activation='relu')(lstm4)
 #  x2 = Dense(hidden_size, activation='relu')(x1)
 #  x3 = Dense(hidden_size, activation='relu')(x2)
-  lstm4_conc = Concatenate()([lstm4,embeds0,embeds2])
-  x1 = Dense(max_output*3,activation='relu')(lstm4_conc)
-  x = Dense(max_output)(x1)
+  x = Dense(max_output)(lstm4)
   predictions = Activation('softmax')(x)
   model = Model(inputs=inputs, outputs=predictions)
 
