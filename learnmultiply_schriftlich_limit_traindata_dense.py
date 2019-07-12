@@ -36,7 +36,6 @@ parser = argparse.ArgumentParser(description='train recurrent net.')
 parser.add_argument('--lr', dest='lr',  type=float, default=1e-3)
 parser.add_argument('--epochs', dest='epochs',  type=int, default=50)
 parser.add_argument('--hidden_size', dest='hidden_size',  type=int, default=50)
-parser.add_argument('--lstm_num', dest='lstm_num',  type=int, default=3)
 parser.add_argument('--final_name', dest='final_name',  type=str, default='final_model')
 parser.add_argument('--pretrained_name', dest='pretrained_name',  type=str, default=None)
 parser.add_argument('--attention', dest='attention', action='store_true')
@@ -54,8 +53,6 @@ parser.add_argument('--float_type', dest='float_type',  type=str, default='float
 parser.add_argument('--epoch_size', dest='epoch_size',  type=int, default=100000)
 parser.add_argument('--train_data_num', dest='train_data_num',  type=int, default=1000)
 parser.add_argument('--only_one_LSTM', dest='only_one_LSTM', action='store_true')
-parser.add_argument('--load_weights_name', dest='load_weights_name',  type=str, default=None)
-parser.add_argument('--check_data_num', dest='check_data_num',  type=int, default=1000)
 
 args = parser.parse_args()
 
@@ -124,26 +121,11 @@ def attentions_layer(x):
 #  x = keras.backend.print_tensor(x, str(x))
   return x
 
-def select_subnet_layer(x):
-    # the last in x are the select, before is divided into parts
-    #from keras import backend as K
-    x_select = x[:,:,-args.lstm_num:]
-    x_data = x[:,:,:-args.lstm_num]
-    print("x_select",x_select.shape)
-    size_of_out = x_data.shape[2] // args.lstm_num
-    out = x_data[:,:,:size_of_out]
-    out = 0 * out
-    for i in range(args.lstm_num):
-        out += x_data[:,:,(i * size_of_out):((i+1)*size_of_out)]* x_select[:,:,i:i+1]
-    print("out",out.shape)
-    print("x",x.shape)
-    return out
-
 hidden_size = args.hidden_size
 
 if args.pretrained_name is not None:
   from keras.models import load_model
-  model = load_model(args.pretrained_name, custom_objects = { "keras": keras , "args":args})
+  model = load_model(args.pretrained_name)
   print("loaded model",model.layers[0].input_shape[1])
 #  ml = model.layers[0].input_shape[1]
 #  if (ml != max_length):
@@ -158,41 +140,46 @@ else:
 #  model.add(Activation('softmax'))
   
   inputs = Input(shape=(None,None))
-  print("inputs",inputs.shape)
+  print("k",inputs.shape)
   x0 = Lambda(lambda x : x[:,0,:])(inputs)
   x1 = Lambda(lambda x : x[:,1,:])(inputs)
   x2 = Lambda(lambda x : x[:,2,:])(inputs)
   x3 = Lambda(lambda x : x[:,3,:])(inputs)
-
+#  x4 = Lambda(lambda x : x[:,4,:])(inputs)
+#  x5 = Lambda(lambda x : x[:,5,:])(inputs)
+#  x6 = Lambda(lambda x : x[:,6,:])(inputs)
+#  x7 = Lambda(lambda x : x[:,7,:])(inputs)
+#  x8 = Lambda(lambda x : x[:,8,:])(inputs)
+#  x9 = Lambda(lambda x : x[:,9,:])(inputs)
   embeds0 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=not args.embed_not_trainable)(x0)
   embeds1 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=not args.embed_not_trainable)(x1)
   embeds2 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=not args.embed_not_trainable)(x2)
   embeds3 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=not args.embed_not_trainable)(x3)
+#  embeds4 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=True)(x4)
+#  embeds5 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=True)(x5)
+#  embeds6 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=True)(x6)
+#  embeds7 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=True)(x7)
+#  embeds8 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=True)(x8)
+#  embeds9 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=True)(x9)
+  
 
-  print("x0",x0.shape)
+  print("k",x0.shape)
   conc = Concatenate()([embeds0,embeds1,embeds2,embeds3])#,embeds4,embeds5])#,embeds6,embeds7,embeds8,embeds9])
-  lstm4 = []
-  for _ in range(args.lstm_num):
-      if args.only_one_LSTM:
-          lstm1 = conc
-      else:
-          lstm1 = LSTM_use(hidden_size, return_sequences=True)(conc)
-      if args.attention:
-        lstm1b = Lambda(attentions_layer)(lstm1)
-      else:
-        lstm1b = lstm1
-      lstm4.append(LSTM_use(hidden_size, return_sequences=True)(lstm1b))
+  if args.only_one_LSTM:
+      lstm1 = conc
+  else:
+      lstm1 = LSTM_use(hidden_size, return_sequences=True)(conc)
+  if args.attention:
+    lstm1b = Lambda(attentions_layer)(lstm1)
+  else:
+    lstm1b = lstm1
+  lstm4 = LSTM_use(hidden_size, return_sequences=True)(lstm1b)
 #  x1 = Dense(hidden_size, activation='relu')(lstm4)
 #  x2 = Dense(hidden_size, activation='relu')(x1)
 #  x3 = Dense(hidden_size, activation='relu')(x2)
-  if args.lstm_num > 1:
-      cc = Concatenate()(lstm4)
-  else:
-      cc = lstm4[0]
-  s_select = Dense(args.lstm_num, activation='softmax', name='dense_selector_'+str(args.lstm_num))(cc)
-  cc2 = Concatenate()([cc,s_select])
-  ccc = Lambda(select_subnet_layer)(cc2)
-  x = Dense(max_output)(ccc)
+  lstm4_conc = Concatenate()([lstm4,embeds0,embeds2])
+  x1 = Dense(max_output*3,activation='relu')(lstm4_conc)
+  x = Dense(max_output)(x1)
   predictions = Activation('softmax')(x)
   model = Model(inputs=inputs, outputs=predictions)
 
@@ -210,9 +197,6 @@ print("learning rate",keras.backend.eval(optimizer.lr))
 model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['categorical_accuracy'])
 
 print(model.summary())
-
-if args.load_weights_name:
-    model.load_weights(args.load_weights_name, by_name=True)
 
 max_length = -1
 
@@ -483,7 +467,6 @@ num_epochs = args.epochs
 history = model.fit_generator(train_data_generator.generate(), args.epoch_size, num_epochs, validation_data=valid_data_generator.generate(), validation_steps=args.epoch_size / 10, callbacks=[checkpointer])
 
 model.save(args.final_name+'.hdf5')
-model.save_weights(args.final_name+'-weights.hdf5')
 print(history.history.keys())
 
 def list_to_string(prediction):
@@ -504,6 +487,6 @@ for inn,out in valid_data_generator.generate():
     else:
         print(o_str, p_str)
     ccc +=1
-    if ccc >=args.check_data_num:
+    if ccc >=1000:
         print("correct: "+str(sum_correct)+"/"+str(ccc)+"="+str(sum_correct/ccc))
         break
