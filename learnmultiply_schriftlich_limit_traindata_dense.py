@@ -49,6 +49,7 @@ parser.add_argument('--epoch_size', dest='epoch_size',  type=int, default=100000
 parser.add_argument('--train_data_num', dest='train_data_num',  type=int, default=1000)
 parser.add_argument('--two_LSTM', dest='two_LSTM', action='store_true')
 parser.add_argument('--dense_size', dest='dense_size',  type=int, default=50)
+parser.add_argument('--check_data_num', dest='check_data_num',  type=int, default=1000)
 
 args = parser.parse_args()
 
@@ -156,11 +157,11 @@ else:
 #  embeds8 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=True)(x8)
 #  embeds9 = Embedding(len(vocab), len(vocab), embeddings_initializer='identity', trainable=True)(x9)
   
-  embed_conc = Concatenate()([embeds0,embeds2,embeds1,embeds3])
+  embed_conc = Concatenate()([embeds0,embeds2])
   x1 = Dense(args.dense_size,activation='relu')(embed_conc)
-  conc = Dense(args.dense_size,activation='relu')(x1)
-#  conc = Concatenate()([x2,lstm4])
-
+  x2 = Dense(args.dense_size,activation='relu')(x1)
+  conc = Concatenate()([x2,embeds1,embeds3])
+#  conc = Concatenate()([embeds0,embeds2,embeds1,embeds3])
   print("k",x0.shape)
 #  conc = Concatenate()([embeds0,embeds1,embeds2,embeds3])#,embeds4,embeds5])#,embeds6,embeds7,embeds8,embeds9])
   if not args.two_LSTM:
@@ -175,7 +176,10 @@ else:
 #  x1 = Dense(hidden_size, activation='relu')(lstm4)
 #  x2 = Dense(hidden_size, activation='relu')(x1)
 #  x3 = Dense(hidden_size, activation='relu')(x2)
-  x = Dense(max_output)(lstm4)
+  conc2 = Concatenate()([x2,lstm4])
+  x3 = Dense(args.dense_size,activation='relu')(conc2)
+  x4 = Dense(args.dense_size,activation='relu')(x3)
+  x = Dense(max_output)(x4)
   predictions = Activation('softmax')(x)
   model = Model(inputs=inputs, outputs=predictions)
 
@@ -483,6 +487,6 @@ for inn,out in valid_data_generator.generate():
     else:
         print(o_str, p_str)
     ccc +=1
-    if ccc >=1000:
+    if ccc >=args.check_data_num:
         print("correct: "+str(sum_correct)+"/"+str(ccc)+"="+str(sum_correct/ccc))
         break
