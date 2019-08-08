@@ -17,7 +17,7 @@ from random import random, randint
 import numpy as np
 from keras.utils import to_categorical
 from keras.models import Sequential, Model, Input
-from keras.layers import Activation, Embedding, Dense, Flatten, GlobalMaxPooling1D, GlobalAveragePooling1D, Lambda, Concatenate
+from keras.layers import Activation, Embedding, Dense, Flatten, GlobalMaxPooling1D, GlobalAveragePooling1D, Lambda, Concatenate, Layer
 from keras.layers import LSTM, CuDNNLSTM, CuDNNGRU, SimpleRNN, GRU
 from keras.optimizers import Adam, SGD, RMSprop, Nadam
 from keras.callbacks import ModelCheckpoint
@@ -124,9 +124,10 @@ def attentions_layer(x):
 #  x = keras.backend.print_tensor(x, str(x))
   return x
 
+@tf.custom_gradient
 def select_subnet_layer(x):
+    global ssss
     # the last in x are the select, before is divided into parts
-    #from keras import backend as K
     x_select = x[:,:,-args.lstm_num:]
     x_data = x[:,:,:-args.lstm_num]
     print("x_select",x_select.shape)
@@ -137,8 +138,36 @@ def select_subnet_layer(x):
         out += x_data[:,:,(i * size_of_out):((i+1)*size_of_out)]* x_select[:,:,i:i+1]
     print("out",out.shape)
     print("x",x.shape)
-    return out
+    def custom_grad(dy):
+        print('debugging',dy)
+        s1 = dy.shape.as_list()[0]
+        s2 = dy.shape.as_list()[1]
+        print(dy,[dy])
+        if s1 is None:
+            return tf.fill((1, 324, size_of_out*args.lstm_num + args.lstm_num), 1.0)
+        grad_nump = np.ones([s1,s2,153], dtype='float32')
+        if x.shape.as_list()[0] is not None:
+            for i in range(args.lstm_num):
+                print('???',args.lstm_num)
+                grad_nump[:,:, size_of_out*i : size_of_out*(i+1)] = x[:,:,size_of_out * args.lstm_num + i]
+                grad_nump[:,:,size_of_out * args + i] = np.sum(x[:,:,size_of_out*i : size_of_out*(i+1)])
+        grad = tf.convert_to_tensor(grad_nump)
+        return grad
+    return out, custom_grad
 
+class CustomLayer(Layer):
+
+    def __init__(self, **kwargs):
+
+        super(CustomLayer, self).__init__(**kwargs)
+
+    def call(self, x):
+        return select_subnet_layer(x[:,:])  # you don't need to explicitly define the custom gradient
+
+    def compute_output_shape(self, input_shape):
+        print(input_shape[2])
+        return (input_shape[0], input_shape[1], (int(input_shape[2]) - args.lstm_num ) // args.lstm_num)
+    
 hidden_size = args.hidden_size
 
 if args.pretrained_name is not None:
@@ -191,11 +220,11 @@ else:
       cc = lstm4[0]
   s_select = Dense(args.lstm_num, activation='softmax', name='dense_selector_'+str(args.lstm_num))(cc)
   cc2 = Concatenate()([cc,s_select])
-  ccc = Lambda(select_subnet_layer)(cc2)
+  #ccc = Lambda(select_subnet_layer)(cc2)
+  ccc = CustomLayer()(cc2)
   x = Dense(max_output)(ccc)
   predictions = Activation('softmax')(x)
   model = Model(inputs=inputs, outputs=predictions)
-
 
 
 
@@ -204,7 +233,8 @@ with open(__file__) as f:
     a = f.readlines()
 startline = inspect.currentframe().f_lineno
 print(a[startline+1:startline+2])
-optimizer = RMSprop(lr=args.lr, rho=0.9, epsilon=None, decay=0)
+#optimizer = LRMultiplier_local('RMSprop',{'lrmult': 1.0})
+optimizer = RMSprop()
 
 print("learning rate",keras.backend.eval(optimizer.lr))
 model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['categorical_accuracy'])
@@ -480,7 +510,7 @@ checkpointer = ModelCheckpoint(filepath='checkpoints/model-{epoch:02d}.hdf5', ve
 
 num_epochs = args.epochs
 
-history = model.fit_generator(train_data_generator.generate(), args.epoch_size, num_epochs, validation_data=valid_data_generator.generate(), validation_steps=args.epoch_size / 10, callbacks=[checkpointer])
+history = model.fit_generator(train_data_generator.generate(), args.epoch_size, num_epochs, validation_data=valid_data_generator.generate(), validation_steps=args.epoch_size / 10, callbacks=[checkpointer]) 
 
 model.save(args.final_name+'.hdf5')
 model.save_weights(args.final_name+'-weights.hdf5')
