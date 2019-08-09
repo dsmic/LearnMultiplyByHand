@@ -32,6 +32,9 @@ import keras.backend
 import argparse
 from random import shuffle
 
+#import os
+#os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+
 parser = argparse.ArgumentParser(description='train recurrent net.')
 parser.add_argument('--lr', dest='lr',  type=float, default=1e-3)
 parser.add_argument('--epochs', dest='epochs',  type=int, default=50)
@@ -126,7 +129,6 @@ def attentions_layer(x):
 
 @tf.custom_gradient
 def select_subnet_layer(x):
-    global ssss
     # the last in x are the select, before is divided into parts
     x_select = x[:,:,-args.lstm_num:]
     x_data = x[:,:,:-args.lstm_num]
@@ -139,20 +141,16 @@ def select_subnet_layer(x):
     print("out",out.shape)
     print("x",x.shape)
     def custom_grad(dy):
-        print('debugging',dy)
-        s1 = dy.shape.as_list()[0]
-        s2 = dy.shape.as_list()[1]
-        print(dy,[dy])
-        if s1 is None:
-            return tf.fill((1, 324, size_of_out*args.lstm_num + args.lstm_num), 1.0)
-        grad_nump = np.ones([s1,s2,153], dtype='float32')
-        if x.shape.as_list()[0] is not None:
-            for i in range(args.lstm_num):
-                print('???',args.lstm_num)
-                grad_nump[:,:, size_of_out*i : size_of_out*(i+1)] = x[:,:,size_of_out * args.lstm_num + i]
-                grad_nump[:,:,size_of_out * args + i] = np.sum(x[:,:,size_of_out*i : size_of_out*(i+1)])
-        grad = tf.convert_to_tensor(grad_nump)
-        return grad
+        size_of_out = (x.shape[2]-args.lstm_num) // args.lstm_num
+        gg = []
+        gs = []
+        for i in range(args.lstm_num):
+            gg.append(  x[:,:,size_of_out * args.lstm_num +i:size_of_out * args.lstm_num + i + 1] * dy)
+            tmp =  x[:,:,size_of_out * i:size_of_out * (i+1)] * dy
+            gs.append(keras.backend.sum(tmp, axis = 2, keepdims = True))
+        grad = keras.backend.concatenate(gg + gs)
+        print(gg,gs,grad)
+        return grad # keras.backend.clip(grad,-1,1)
     return out, custom_grad
 
 class CustomLayer(Layer):
@@ -162,7 +160,7 @@ class CustomLayer(Layer):
         super(CustomLayer, self).__init__(**kwargs)
 
     def call(self, x):
-        return select_subnet_layer(x[:,:])  # you don't need to explicitly define the custom gradient
+        return select_subnet_layer(x)  # you don't need to explicitly define the custom gradient
 
     def compute_output_shape(self, input_shape):
         print(input_shape[2])
@@ -233,7 +231,6 @@ with open(__file__) as f:
     a = f.readlines()
 startline = inspect.currentframe().f_lineno
 print(a[startline+1:startline+2])
-#optimizer = LRMultiplier_local('RMSprop',{'lrmult': 1.0})
 optimizer = RMSprop()
 
 print("learning rate",keras.backend.eval(optimizer.lr))
@@ -276,12 +273,12 @@ def one_data(maxlen1, maxlen2, debug = False):
     sequence_in = []
     result = []
     
-    xx1 = [randint(0,9) for _ in range(maxlen1)]
+    xx1 = [randint(1,9) for _ in range(maxlen1)]
     x1 = 0
     for x in xx1:
        x1*=10
        x1+=x
-    xx2 = [randint(0,9) for _ in range(maxlen2)]
+    xx2 = [randint(1,9) for _ in range(maxlen2)]
     x2 = 0
     for x in xx2:
        x2*=10
