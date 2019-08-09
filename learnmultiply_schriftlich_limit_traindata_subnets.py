@@ -129,29 +129,14 @@ def attentions_layer(x):
 
 @tf.custom_gradient
 def select_subnet_layer(x):
-    # the last in x are the select, before is divided into parts
-    x_select = x[:,:,-args.lstm_num:]
-    x_data = x[:,:,:-args.lstm_num]
-    print("x_select",x_select.shape)
-    size_of_out = x_data.shape[2] // args.lstm_num
-    out = x_data[:,:,:size_of_out]
-    out = 0 * out
-    for i in range(args.lstm_num):
-        out += x_data[:,:,(i * size_of_out):((i+1)*size_of_out)]* x_select[:,:,i:i+1]
-    print("out",out.shape)
-    print("x",x.shape)
+    size_of_out = (x.shape[2]-args.lstm_num) // args.lstm_num
+    oo = [x[:,:,(i * size_of_out):((i+1)*size_of_out)]* x[:,:,size_of_out * args.lstm_num +i:size_of_out * args.lstm_num + i + 1] for i in range(args.lstm_num)]
     def custom_grad(dy):
-        size_of_out = (x.shape[2]-args.lstm_num) // args.lstm_num
-        gg = []
-        gs = []
-        for i in range(args.lstm_num):
-            gg.append(  x[:,:,size_of_out * args.lstm_num +i:size_of_out * args.lstm_num + i + 1] * dy)
-            tmp =  x[:,:,size_of_out * i:size_of_out * (i+1)] * dy
-            gs.append(keras.backend.sum(tmp, axis = 2, keepdims = True))
+        gg = [x[:,:,size_of_out * args.lstm_num +i:size_of_out * args.lstm_num + i + 1] * dy for i in range(args.lstm_num)]
+        gs = [keras.backend.sum(x[:,:,size_of_out * i:size_of_out * (i+1)] * dy, axis = 2, keepdims = True) for i in range(args.lstm_num)]
         grad = keras.backend.concatenate(gg + gs)
-        print(gg,gs,grad)
-        return grad # keras.backend.clip(grad,-1,1)
-    return out, custom_grad
+        return grad
+    return tf.add_n(oo), custom_grad
 
 class CustomLayer(Layer):
 
