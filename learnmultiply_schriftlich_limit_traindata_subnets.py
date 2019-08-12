@@ -11,15 +11,14 @@ Created on Fri Feb  1 15:50:23 2019
 # restarting in the same console throws an tensorflow error, force a new console
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-from random import shuffle
-from random import random, randint
+from random import randint
 
 import numpy as np
 from keras.utils import to_categorical
-from keras.models import Sequential, Model, Input
-from keras.layers import Activation, Embedding, Dense, Flatten, GlobalMaxPooling1D, GlobalAveragePooling1D, Lambda, Concatenate, Layer
-from keras.layers import LSTM, CuDNNLSTM, CuDNNGRU, SimpleRNN, GRU
-from keras.optimizers import Adam, SGD, RMSprop, Nadam
+from keras.models import Model, Input
+from keras.layers import Activation, Embedding, Lambda, Concatenate, Layer, Dense, Dropout, GaussianNoise
+from keras.layers import CuDNNLSTM, CuDNNGRU, SimpleRNN, GRU
+from keras.optimizers import  RMSprop
 from keras.callbacks import ModelCheckpoint
 import keras.backend
 
@@ -30,7 +29,6 @@ import keras.backend
 
 
 import argparse
-from random import shuffle
 
 #import os
 #os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
@@ -43,22 +41,21 @@ parser.add_argument('--lstm_num', dest='lstm_num',  type=int, default=3)
 parser.add_argument('--final_name', dest='final_name',  type=str, default='final_model')
 parser.add_argument('--pretrained_name', dest='pretrained_name',  type=str, default=None)
 parser.add_argument('--attention', dest='attention', action='store_true')
-#parser.add_argument('--depth', dest='depth',  type=int, default=3)
 parser.add_argument('--debug', dest='debug', action='store_true')
 parser.add_argument('--embed_not_trainable', dest='embed_not_trainable', action='store_true')
-#parser.add_argument('--only_one', dest='only_one', action='store_true')
 parser.add_argument('--revert', dest='revert', action='store_true')
 #parser.add_argument('--add_history', dest='add_history', action='store_true')
 parser.add_argument('--RNN_type', dest='RNN_type',  type=str, default='CuDNNLSTM')
 parser.add_argument('--gpu_mem', dest='gpu_mem',  type=float, default=0.5)
-#parser.add_argument('--fill_vars_with_atoms', dest='fill_vars_with_atoms', action='store_true')
-#parser.add_argument('--rand_atoms', dest='rand_atoms', action='store_true')
 parser.add_argument('--float_type', dest='float_type',  type=str, default='float32')
 parser.add_argument('--epoch_size', dest='epoch_size',  type=int, default=100000)
 parser.add_argument('--train_data_num', dest='train_data_num',  type=int, default=1000)
-parser.add_argument('--only_one_LSTM', dest='only_one_LSTM', action='store_true')
+parser.add_argument('--use_two_LSTM', dest='use_two_LSTM', action='store_true')
 parser.add_argument('--load_weights_name', dest='load_weights_name',  type=str, default=None)
 parser.add_argument('--check_data_num', dest='check_data_num',  type=int, default=1000)
+parser.add_argument('--selector_pow', dest='selector_pow',  type=int, default=1)
+parser.add_argument('--dropout', dest='dropout',  type=float, default=0.0)
+parser.add_argument('--noise_layer', dest='noise_layer',  type=float, default=0.0)
 
 args = parser.parse_args()
 
@@ -132,17 +129,18 @@ def select_subnet_layer(x):
     size_of_out = (x.shape[2]-args.lstm_num) // args.lstm_num
     oo = [x[:,:,(i * size_of_out):((i+1)*size_of_out)]* x[:,:,size_of_out * args.lstm_num +i:size_of_out * args.lstm_num + i + 1] for i in range(args.lstm_num)]
     def custom_grad(dy):
-        gg = [x[:,:,size_of_out * args.lstm_num +i:size_of_out * args.lstm_num + i + 1] * dy for i in range(args.lstm_num)]
-        gs = [keras.backend.sum(x[:,:,size_of_out * i:size_of_out * (i+1)] * dy, axis = 2, keepdims = True) for i in range(args.lstm_num)]
+        gg = [tf.pow(x[:,:,size_of_out * args.lstm_num +i:size_of_out * args.lstm_num + i + 1],args.selector_pow) * dy 
+              for i in range(args.lstm_num)]
+        gs = [keras.backend.sum(x[:,:,size_of_out * i:size_of_out * (i+1)] * dy, axis = 2, keepdims = True) 
+                for i in range(args.lstm_num)]
         grad = keras.backend.concatenate(gg + gs)
         return grad
     return tf.add_n(oo), custom_grad
 
-class CustomLayer(Layer):
+class SelectSubnetLayer(Layer):
 
-    def __init__(self, **kwargs):
-
-        super(CustomLayer, self).__init__(**kwargs)
+#    def __init__(self, **kwargs):
+#        super(CustomLayer, self).__init__(**kwargs)
 
     def call(self, x):
         return select_subnet_layer(x)  # you don't need to explicitly define the custom gradient
@@ -185,7 +183,7 @@ else:
   conc = Concatenate()([embeds0,embeds1,embeds2,embeds3])#,embeds4,embeds5])#,embeds6,embeds7,embeds8,embeds9])
   lstm4 = []
   for _ in range(args.lstm_num):
-      if args.only_one_LSTM:
+      if not args.use_two_LSTM:
           lstm1 = conc
       else:
           lstm1 = LSTM_use(hidden_size, return_sequences=True)(conc)
@@ -201,10 +199,20 @@ else:
       cc = Concatenate()(lstm4)
   else:
       cc = lstm4[0]
-  s_select = Dense(args.lstm_num, activation='softmax', name='dense_selector_'+str(args.lstm_num))(cc)
-  cc2 = Concatenate()([cc,s_select])
+  s_select = Dense(args.lstm_num, #activation='softmax', 
+                   name='dense_selector_'+str(args.lstm_num))(cc)
+  if args.dropout > 0:
+    s_select_drop = Dropout(rate = args.dropout)(s_select)
+  else:
+    s_select_drop = s_select  
+  if args.noise_layer > 0:
+      s_select_drop_noise = GaussianNoise(args.noise_layer)(s_select_drop)
+  else:
+    s_select_drop_noise = s_select_drop  
+  s_select_drop_activation = Activation('softmax', name = 'dense_selector_act')(s_select_drop_noise)
+  cc2 = Concatenate()([cc,s_select_drop_activation])
   #ccc = Lambda(select_subnet_layer)(cc2)
-  ccc = CustomLayer()(cc2)
+  ccc = SelectSubnetLayer()(cc2)
   x = Dense(max_output)(ccc)
   predictions = Activation('softmax')(x)
   model = Model(inputs=inputs, outputs=predictions)
@@ -258,12 +266,12 @@ def one_data(maxlen1, maxlen2, debug = False):
     sequence_in = []
     result = []
     
-    xx1 = [randint(1,9) for _ in range(maxlen1)]
+    xx1 = [randint(0,9) for _ in range(maxlen1)]
     x1 = 0
     for x in xx1:
        x1*=10
        x1+=x
-    xx2 = [randint(1,9) for _ in range(maxlen2)]
+    xx2 = [randint(0,9) for _ in range(maxlen2)]
     x2 = 0
     for x in xx2:
        x2*=10
@@ -487,7 +495,7 @@ train_data_generator = KerasBatchGenerator(args.train_data_num, vocab)
 valid_data_generator = KerasBatchGenerator(0, vocab)
 
 
-print("starting")
+print("starting",args)
 checkpointer = ModelCheckpoint(filepath='checkpoints/model-{epoch:02d}.hdf5', verbose=1)
 
 num_epochs = args.epochs
@@ -508,6 +516,18 @@ def list_to_string(prediction):
 sum_correct = 0
 ccc = 0
 for inn,out in valid_data_generator.generate():
+    inp = model.input
+    selection_layer = [l.output for l in model.layers if l.name.startswith('dense_selector_a')]
+    functors = [keras.backend.function([inp], [out]) for out in selection_layer]
+    ds_out = [func([inn]) for func in functors][0][0][0]
+    pp=0
+    for ab in ds_out:
+        if pp % 10 == 0:
+            print(pp)
+        pp +=1
+        nnn = chr(ord('A') + np.argmax(ab))
+        print('{0}-{1:3.2f}'.format(nnn,max(ab)), end = '  ')
+    print('')
     prediction = model.predict(inn)[0]
     o_str = list_to_string(out[0])
     p_str = list_to_string(prediction)
