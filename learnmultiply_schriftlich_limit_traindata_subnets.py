@@ -170,13 +170,13 @@ class SelectSubnetLayer(Layer):
         
         oo = [x[i][:,:,1:]*self.sel_drop_softmax[:,:,i:i+1] for i in range(len(x))]
         
-        return tf.add_n(oo)  # you don't need to explicitly define the custom gradient
+        return [tf.add_n(oo),  self.sel_drop_softmax] # you don't need to explicitly define the custom gradient
     
     def compute_output_shape(self, input_shape):
         assert isinstance(input_shape, list)
         f_input_shape = input_shape[0]
         print(f_input_shape[2])
-        return (f_input_shape[0], f_input_shape[1], f_input_shape[2] - 1)
+        return [(f_input_shape[0], f_input_shape[1], f_input_shape[2] - 1), (f_input_shape[0], f_input_shape[1], len(input_shape))]
     
 hidden_size = args.hidden_size
 
@@ -253,7 +253,8 @@ else:
       cc2 = Concatenate()([cc,s_select_drop_activation])
       ccc = SelectSubnetLayer2()(cc2)
   else:
-      ccc = SelectSubnetLayer(0.1)(lstm2_list)
+      cccb = SelectSubnetLayer(args.dropout)(lstm2_list)
+      ccc = Concatenate()(cccb)
   x = Dense(max_output)(ccc)
   predictions = Activation('softmax')(x)
   model = Model(inputs=inputs, outputs=predictions)
@@ -270,7 +271,7 @@ optimizer = RMSprop()
 print("learning rate",K.eval(optimizer.lr))
 model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['categorical_accuracy'])
 
-print(model.summary())
+print(model.summary(line_length=180, positions = [.33, .55, .67, 1.]))
 
 if args.load_weights_name:
     model.load_weights(args.load_weights_name, by_name=True)
@@ -563,9 +564,10 @@ def print_test(num_of_tests):
             selection_layer = [l.output for l in model.layers if l.name.startswith('dense_selector_a')]
             functors = [K.function([inp], [out]) for out in selection_layer]
         else:
-            selection_layer = [l.sel_drop_softmax for l in model.layers if isinstance(l,SelectSubnetLayer)]
+            selection_layer = [l.output[1] for l in model.layers if isinstance(l,SelectSubnetLayer)]
             functors = [K.function([inp], [out]) for out in selection_layer]
-            
+        
+        #print(functors)
         if len(functors)>0:
             ds_out = [func([inn]) for func in functors][0][0][0]
             pp=0
