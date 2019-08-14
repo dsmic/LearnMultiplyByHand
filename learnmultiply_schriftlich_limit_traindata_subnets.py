@@ -20,7 +20,8 @@ from keras.layers import Activation, Embedding, Lambda, Concatenate, Layer, Dens
 from keras.layers import CuDNNLSTM, CuDNNGRU, SimpleRNN, GRU
 from keras.optimizers import  RMSprop
 from keras.callbacks import ModelCheckpoint
-import keras.backend
+import keras.backend as K
+import keras
 
 # uncomment the following to disable CuDNN support
 #os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -56,6 +57,9 @@ parser.add_argument('--check_data_num', dest='check_data_num',  type=int, defaul
 parser.add_argument('--selector_pow', dest='selector_pow',  type=int, default=1)
 parser.add_argument('--dropout', dest='dropout',  type=float, default=0.0)
 parser.add_argument('--noise_layer', dest='noise_layer',  type=float, default=0.0)
+parser.add_argument('--start_console', dest='start_console', action='store_true')
+parser.add_argument('--select_without_dense', dest='select_without_dense', action='store_true')
+parser.add_argument('--use_full_select_layer', dest='use_full_select_layer', action='store_true')
 
 args = parser.parse_args()
 
@@ -65,7 +69,7 @@ config = tf.ConfigProto()
 config.gpu_options.per_process_gpu_memory_fraction = args.gpu_mem
 set_session(tf.Session(config=config))
 
-keras.backend.set_floatx(args.float_type)
+K.set_floatx(args.float_type)
 
 
 
@@ -114,7 +118,7 @@ max_output = len(vocab)
 
 
 def attentions_layer(x):
-  from keras import backend as K
+#  from keras import backend as K
   x1 = x[:,:,1:]
   x2 = x[:,:,0:1]
   x2 = K.softmax(x2)
@@ -131,13 +135,13 @@ def select_subnet_layer(x):
     def custom_grad(dy):
         gg = [tf.pow(x[:,:,size_of_out * args.lstm_num +i:size_of_out * args.lstm_num + i + 1],args.selector_pow) * dy 
               for i in range(args.lstm_num)]
-        gs = [keras.backend.sum(x[:,:,size_of_out * i:size_of_out * (i+1)] * dy, axis = 2, keepdims = True) 
+        gs = [K.sum(x[:,:,size_of_out * i:size_of_out * (i+1)] * dy, axis = 2, keepdims = True) 
                 for i in range(args.lstm_num)]
-        grad = keras.backend.concatenate(gg + gs)
+        grad = K.concatenate(gg + gs)
         return grad
     return tf.add_n(oo), custom_grad
 
-class SelectSubnetLayer(Layer):
+class SelectSubnetLayer2(Layer):
 
 #    def __init__(self, **kwargs):
 #        super(CustomLayer, self).__init__(**kwargs)
@@ -148,6 +152,31 @@ class SelectSubnetLayer(Layer):
     def compute_output_shape(self, input_shape):
         print(input_shape[2])
         return (input_shape[0], input_shape[1], (int(input_shape[2]) - args.lstm_num ) // args.lstm_num)
+
+class SelectSubnetLayer(Layer):
+    # this layer takes as input a list of identically shaped inputs and outputs the shape of one of thouse inputs without the first entry in the last axis
+    # the first entry in the last axis is used as a selector. From all selectors with softmax every input is scaled and added to result in the output
+    # The idea is to select one subnet for a given task. Different subnets can do different task and the selector selects, which subnet is used.
+    # the layer supports dropout for the selector (before softmax)
+    def __init__(self, dropout = 0, **kwargs):
+        self.dropout = dropout
+        super(SelectSubnetLayer, self).__init__(**kwargs)
+
+    def call(self, x, training=None):
+        sel = [xx[:,:,0:1] for xx in x] #the first enty of every input is the selector
+        sel_tensor = K.concatenate(sel)
+        sel_drop = K.dropout(sel_tensor,self.dropout) #drop out of selector before softmax
+        self.sel_drop_softmax = K.softmax(K.in_train_phase(sel_drop,sel_tensor, training=training))
+        
+        oo = [x[i][:,:,1:]*self.sel_drop_softmax[:,:,i:i+1] for i in range(len(x))]
+        
+        return tf.add_n(oo)  # you don't need to explicitly define the custom gradient
+    
+    def compute_output_shape(self, input_shape):
+        assert isinstance(input_shape, list)
+        f_input_shape = input_shape[0]
+        print(f_input_shape[2])
+        return (f_input_shape[0], f_input_shape[1], f_input_shape[2] - 1)
     
 hidden_size = args.hidden_size
 
@@ -182,6 +211,8 @@ else:
   print("x0",x0.shape)
   conc = Concatenate()([embeds0,embeds1,embeds2,embeds3])#,embeds4,embeds5])#,embeds6,embeds7,embeds8,embeds9])
   lstm4 = []
+  lstm4_select = []
+  lstm2_list = []
   for _ in range(args.lstm_num):
       if not args.use_two_LSTM:
           lstm1 = conc
@@ -191,28 +222,38 @@ else:
         lstm1b = Lambda(attentions_layer)(lstm1)
       else:
         lstm1b = lstm1
-      lstm4.append(LSTM_use(hidden_size, return_sequences=True)(lstm1b))
-#  x1 = Dense(hidden_size, activation='relu')(lstm4)
-#  x2 = Dense(hidden_size, activation='relu')(x1)
-#  x3 = Dense(hidden_size, activation='relu')(x2)
-  if args.lstm_num > 1:
-      cc = Concatenate()(lstm4)
+      lstm_2 = LSTM_use(hidden_size, return_sequences=True)(lstm1b)  
+      lstm2_list.append(lstm_2)
+      if args.select_without_dense:
+          lstm2b_select = Lambda(lambda x: x[:,:,0:1])(lstm_2)
+          lstm2b_data = Lambda(lambda x: x[:,:,1:])(lstm_2)
+          lstm4_select.append(lstm2b_select)
+      else:
+          lstm2b_data = lstm_2
+      lstm4.append(lstm2b_data)
+  if not args.use_full_select_layer:
+      if args.lstm_num > 1:
+          cc = Concatenate()(lstm4)
+      else:
+          cc = lstm4[0]
+      if not args.select_without_dense:
+          s_select = Dense(args.lstm_num, #activation='softmax', 
+                       name='dense_selector_'+str(args.lstm_num))(cc)
+      else:
+          s_select = Concatenate()(lstm4_select)
+      if args.dropout > 0:
+        s_select_drop = Dropout(rate = args.dropout)(s_select)
+      else:
+        s_select_drop = s_select  
+      if args.noise_layer > 0:
+          s_select_drop_noise = GaussianNoise(args.noise_layer)(s_select_drop)
+      else:
+        s_select_drop_noise = s_select_drop  
+      s_select_drop_activation = Activation('softmax', name = 'dense_selector_act')(s_select_drop_noise)
+      cc2 = Concatenate()([cc,s_select_drop_activation])
+      ccc = SelectSubnetLayer2()(cc2)
   else:
-      cc = lstm4[0]
-  s_select = Dense(args.lstm_num, #activation='softmax', 
-                   name='dense_selector_'+str(args.lstm_num))(cc)
-  if args.dropout > 0:
-    s_select_drop = Dropout(rate = args.dropout)(s_select)
-  else:
-    s_select_drop = s_select  
-  if args.noise_layer > 0:
-      s_select_drop_noise = GaussianNoise(args.noise_layer)(s_select_drop)
-  else:
-    s_select_drop_noise = s_select_drop  
-  s_select_drop_activation = Activation('softmax', name = 'dense_selector_act')(s_select_drop_noise)
-  cc2 = Concatenate()([cc,s_select_drop_activation])
-  #ccc = Lambda(select_subnet_layer)(cc2)
-  ccc = SelectSubnetLayer()(cc2)
+      ccc = SelectSubnetLayer(0.1)(lstm2_list)
   x = Dense(max_output)(ccc)
   predictions = Activation('softmax')(x)
   model = Model(inputs=inputs, outputs=predictions)
@@ -226,7 +267,7 @@ startline = inspect.currentframe().f_lineno
 print(a[startline+1:startline+2])
 optimizer = RMSprop()
 
-print("learning rate",keras.backend.eval(optimizer.lr))
+print("learning rate",K.eval(optimizer.lr))
 model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['categorical_accuracy'])
 
 print(model.summary())
@@ -513,29 +554,42 @@ def list_to_string(prediction):
     return s
     
     
-sum_correct = 0
-ccc = 0
-for inn,out in valid_data_generator.generate():
-    inp = model.input
-    selection_layer = [l.output for l in model.layers if l.name.startswith('dense_selector_a')]
-    functors = [keras.backend.function([inp], [out]) for out in selection_layer]
-    ds_out = [func([inn]) for func in functors][0][0][0]
-    pp=0
-    for ab in ds_out:
-        if pp % 10 == 0:
-            print(pp)
-        pp +=1
-        nnn = chr(ord('A') + np.argmax(ab))
-        print('{0}-{1:3.2f}'.format(nnn,max(ab)), end = '  ')
-    print('')
-    prediction = model.predict(inn)[0]
-    o_str = list_to_string(out[0])
-    p_str = list_to_string(prediction)
-    if o_str == p_str:
-        sum_correct+=1
-    else:
-        print(o_str, p_str)
-    ccc +=1
-    if ccc >=args.check_data_num:
-        print("correct: "+str(sum_correct)+"/"+str(ccc)+"="+str(sum_correct/ccc))
-        break
+def print_test(num_of_tests):
+    sum_correct = 0
+    ccc = 0
+    for inn,out in valid_data_generator.generate():
+        inp = model.input
+        if not args.use_full_select_layer:
+            selection_layer = [l.output for l in model.layers if l.name.startswith('dense_selector_a')]
+            functors = [K.function([inp], [out]) for out in selection_layer]
+        else:
+            selection_layer = [l.sel_drop_softmax for l in model.layers if isinstance(l,SelectSubnetLayer)]
+            functors = [K.function([inp], [out]) for out in selection_layer]
+            
+        if len(functors)>0:
+            ds_out = [func([inn]) for func in functors][0][0][0]
+            pp=0
+            for ab in ds_out:
+                if pp % 10 == 0:
+                    print(pp)
+                pp +=1
+                nnn = chr(ord('A') + np.argmax(ab))
+                print('{0}-{1:3.2f}'.format(nnn,max(ab)), end = '  ')
+            print('')
+        
+        prediction = model.predict(inn)[0]
+        o_str = list_to_string(out[0])
+        p_str = list_to_string(prediction)
+        if o_str == p_str:
+            sum_correct+=1
+        else:
+            print(o_str, p_str)
+        ccc +=1
+        if ccc >=num_of_tests:
+            print("correct: "+str(sum_correct)+"/"+str(ccc)+"="+str(sum_correct/ccc))
+            break
+
+print_test(args.check_data_num)
+if args.start_console:
+    import code
+    code.interact(local=locals())
