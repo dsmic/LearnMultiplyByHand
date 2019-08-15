@@ -14,14 +14,15 @@ Created on Fri Feb  1 15:50:23 2019
 from random import randint
 
 import numpy as np
-from keras.utils import to_categorical
-from keras.models import Model, Input
-from keras.layers import Activation, Embedding, Lambda, Concatenate, Layer, Dense, Dropout, GaussianNoise
-from keras.layers import CuDNNLSTM, CuDNNGRU, SimpleRNN, GRU
-from keras.optimizers import  RMSprop
-from keras.callbacks import ModelCheckpoint
-import keras.backend as K
-import keras
+
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Activation, Embedding, Lambda, Concatenate, Layer, Dense, Dropout, GaussianNoise, BatchNormalization, Input
+from tensorflow.keras.layers import CuDNNLSTM, CuDNNGRU, SimpleRNN, GRU, LSTM
+from tensorflow.keras.optimizers import  RMSprop
+from tensorflow.keras.callbacks import ModelCheckpoint
+import tensorflow.keras.backend as K
+import tensorflow.keras as keras
 
 # uncomment the following to disable CuDNN support
 #os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -60,11 +61,12 @@ parser.add_argument('--noise_layer', dest='noise_layer',  type=float, default=0.
 parser.add_argument('--start_console', dest='start_console', action='store_true')
 parser.add_argument('--select_without_dense', dest='select_without_dense', action='store_true')
 parser.add_argument('--use_full_select_layer', dest='use_full_select_layer', action='store_true')
+parser.add_argument('--BatchNorm', dest='BatchNorm', action='store_true')
 
 args = parser.parse_args()
 
 import tensorflow as tf
-from keras.backend.tensorflow_backend import set_session
+from tensorflow.keras.backend import set_session
 config = tf.ConfigProto()
 config.gpu_options.per_process_gpu_memory_fraction = args.gpu_mem
 set_session(tf.Session(config=config))
@@ -75,6 +77,7 @@ K.set_floatx(args.float_type)
 
 RNN_type = {}
 RNN_type['CuDNNLSTM'] = CuDNNLSTM
+RNN_type['LSTM'] = LSTM
 RNN_type['CuDNNGRU'] = CuDNNGRU
 RNN_type['GRU'] = GRU
 RNN_type['SimpleRNN'] = SimpleRNN
@@ -210,6 +213,8 @@ else:
 
   print("x0",x0.shape)
   conc = Concatenate()([embeds0,embeds1,embeds2,embeds3])#,embeds4,embeds5])#,embeds6,embeds7,embeds8,embeds9])
+  if args.BatchNorm:
+      conc = BatchNormalization()(conc)
   lstm4 = []
   lstm4_select = []
   lstm2_list = []
