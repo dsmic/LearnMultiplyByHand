@@ -15,10 +15,17 @@ from random import randint
 
 import numpy as np
 
+import tensorflow as tf
+
+if tf.__version__ > "2.0":
+    print("ERROR: currently running TensorFlow version " + tf.__version__ + ", is experimental")
+
 from tensorflow.keras.utils import to_categorical
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Activation, Embedding, Lambda, Concatenate, Layer, Dense, Dropout, GaussianNoise, BatchNormalization, Input
-from tensorflow.keras.layers import CuDNNLSTM, CuDNNGRU, SimpleRNN, GRU, LSTM
+from tensorflow.keras.layers import SimpleRNN, GRU, LSTM
+if tf.__version__ < "2.0":
+    from tensorflow.keras.layers import CuDNNGRU, CuDNNLSTM    
 from tensorflow.keras.optimizers import  RMSprop
 from tensorflow.keras.callbacks import ModelCheckpoint
 import tensorflow.keras.backend as K
@@ -47,8 +54,13 @@ parser.add_argument('--debug', dest='debug', action='store_true')
 parser.add_argument('--embed_not_trainable', dest='embed_not_trainable', action='store_true')
 parser.add_argument('--revert', dest='revert', action='store_true')
 #parser.add_argument('--add_history', dest='add_history', action='store_true')
-parser.add_argument('--RNN_type', dest='RNN_type',  type=str, default='CuDNNLSTM')
-parser.add_argument('--gpu_mem', dest='gpu_mem',  type=float, default=0.5)
+if tf.__version__ < "2.0":
+    parser.add_argument('--RNN_type', dest='RNN_type',  type=str, default='CuDNNLSTM')
+else:
+    parser.add_argument('--RNN_type', dest='RNN_type',  type=str, default='LSTM')
+    
+#if tf.__version__ < "2.0":
+#    parser.add_argument('--gpu_mem', dest='gpu_mem',  type=float, default=0.5)
 parser.add_argument('--float_type', dest='float_type',  type=str, default='float32')
 parser.add_argument('--epoch_size', dest='epoch_size',  type=int, default=100000)
 parser.add_argument('--train_data_num', dest='train_data_num',  type=int, default=1000)
@@ -65,20 +77,36 @@ parser.add_argument('--BatchNorm', dest='BatchNorm', action='store_true')
 
 args = parser.parse_args()
 
-import tensorflow as tf
-from tensorflow.keras.backend import set_session
-config = tf.ConfigProto()
-config.gpu_options.per_process_gpu_memory_fraction = args.gpu_mem
-set_session(tf.Session(config=config))
+
+if tf.__version__ < "2.0":
+    from tensorflow.keras.backend import set_session
+    config = tf.ConfigProto()
+    #config.gpu_options.per_process_gpu_memory_fraction = args.gpu_mem
+    config.gpu_options.allow_growth = True
+    set_session(tf.Session(config=config))
+else:
+    #tensorflow 2.0 sets memory growth per default
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+      try:
+        # Currently, memory growth needs to be the same across GPUs
+        for gpu in gpus:
+          tf.config.experimental.set_memory_growth(gpu, True)
+        logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+        print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+      except RuntimeError as e:
+        # Memory growth must be set before GPUs have been initialized
+        print(e)
 
 K.set_floatx(args.float_type)
 
-
-
 RNN_type = {}
-RNN_type['CuDNNLSTM'] = CuDNNLSTM
+if tf.__version__ < "2.0":
+    RNN_type['CuDNNLSTM'] = CuDNNLSTM
+    RNN_type['CuDNNGRU'] = CuDNNGRU
+    
+
 RNN_type['LSTM'] = LSTM
-RNN_type['CuDNNGRU'] = CuDNNGRU
 RNN_type['GRU'] = GRU
 RNN_type['SimpleRNN'] = SimpleRNN
 
