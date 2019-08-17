@@ -289,9 +289,10 @@ x = Dense(cathegories)(flat)
 predictions = Activation('softmax')(x)
 
 model = Model(inputs=inputs, outputs=predictions)
-model.compile(loss='categorical_crossentropy', optimizer='Adam', metrics=['categorical_accuracy'])
 
-print(model.summary(line_length=180, positions = [.33, .55, .67, 1.]))
+#model.compile(loss='categorical_crossentropy', optimizer='Adam', metrics=['categorical_accuracy'])
+
+#print(model.summary(line_length=180, positions = [.33, .55, .67, 1.]))
 
 
 
@@ -302,7 +303,7 @@ encoded_l = model(input1)
 encoded_r = model(input2)
 
 # Add a customized layer to compute the absolute difference between the encodings
-L1_layer = Lambda(lambda tensors:-10*K.sum(K.square(tensors[0] - tensors[1]), keepdims=True))
+L1_layer = Lambda(lambda tensors:1-K.sum(K.abs(tensors[0] - tensors[1]), keepdims=True))
 L1_distance = L1_layer([encoded_l, encoded_r])
 
 # Add a dense layer with a sigmoid unit to generate the similarity score
@@ -310,16 +311,37 @@ L1_distance = L1_layer([encoded_l, encoded_r])
 prediction = Activation('exponential')(L1_distance)
 
 # Connect the inputs with the outputs
-siamese_net = Model(inputs=[input1,input2],outputs=prediction)
+siamese_net = Model(inputs=[input1,input2],outputs=L1_distance)
+#siamese_net.compile(loss='categorical_crossentropy', optimizer='Adam', metrics=['binary_accuracy'])
+#print(siamese_net.summary())
 
 print("eval", episode_train_img[0:1])
-for i in range(10):
+sum_a = np.zeros(episode_train_label[0:1].shape)
+for i in range(0,train_epoch_size):
     a = siamese_net([K.variable(episode_train_img[0:1]), K.variable(episode_train_img[i:i+1])])
-    print('aaaaa',i,K.eval(a), episode_train_label[0:1], episode_train_label[i:i+1])
-siamese_net.compile(loss='binary_crossentropy', optimizer='Adam', metrics=['binary_accuracy'])
+    sum_a += K.variable(episode_train_label[i:i+1]) * a
+    #print('aaaaa',i,K.eval(a), episode_train_label[0:1], episode_train_label[i:i+1])
 
-print(siamese_net.summary())
+
+print('suma',episode_train_label[0:1], K.eval(K.softmax(sum_a)))
+
+sum_few = np.zeros(episode_train_label[0:1].shape)
+input_few = Input(shape=(84,84,3))
+for i in range(0,train_epoch_size):
+    a = siamese_net([input_few, K.variable(episode_train_img[i:i+1])])
+    sum_few += K.variable(episode_train_label[i:i+1]) * a
+    print(i)
+
+full_few_shot = Model(inputs = input_few, outputs = sum_few)
+
+print('net ready')
+
+
+full_few_shot.compile(loss='categorical_crossentropy', optimizer='Adam', metrics=['categorical_accuracy'])
+
+print(full_few_shot.summary())
+
 checkpointer = ModelCheckpoint(filepath='checkpoints/model-{epoch:02d}.hdf5', verbose=1)
 
-history = model.fit_generator(gen_train, train_epoch_size, 10, validation_data=gen_test, validation_steps=test_epoch_size, callbacks=[checkpointer]) 
+history = full_few_shot.fit_generator(gen_train, train_epoch_size, 100, validation_data=gen_test, validation_steps=test_epoch_size) 
 
