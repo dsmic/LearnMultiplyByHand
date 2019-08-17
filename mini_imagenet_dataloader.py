@@ -211,11 +211,11 @@ class MiniImageNetDataLoader(object):
 cathegories = 5
 dataloader = MiniImageNetDataLoader(shot_num=5, way_num=cathegories, episode_test_sample_num=15)
 
-dataloader.generate_data_list(phase='train')
-dataloader.generate_data_list(phase='val')
-dataloader.generate_data_list(phase='test')
+dataloader.generate_data_list(phase='train', episode_num = 20000)
+#dataloader.generate_data_list(phase='val')
+#dataloader.generate_data_list(phase='test')
 
-dataloader.load_list(phase='all')
+dataloader.load_list(phase='train')
 
 episode_train_img, episode_train_label, episode_test_img, episode_test_label = \
         dataloader.get_batch(phase='train', idx=0)
@@ -223,7 +223,7 @@ episode_train_img, episode_train_label, episode_test_img, episode_test_label = \
 train_epoch_size = episode_train_img.shape[0]
 test_epoch_size = episode_test_img.shape[0]
 
-print("epoch training size:", train_epoch_size, "epoch testing size", test_epoch_size)
+print("epoch training size:", train_epoch_size, episode_train_label.shape[0], "epoch testing size", test_epoch_size)
 
 class KerasBatchGenerator(object):
 
@@ -238,11 +238,11 @@ class KerasBatchGenerator(object):
             if self.phase == 'train':
                 #print(episode_train_img.shape[0])
                 for i in range(episode_train_img.shape[0]):
-                    yield np.expand_dims(episode_train_img[i], 0), np.expand_dims(episode_train_label[i], 0)
+                    yield episode_train_img[i:i+1], episode_train_label[i:i+1]
             else:
                 #print(episode_test_img.shape[0])
                 for i in range(episode_test_img.shape[0]):
-                    yield np.expand_dims(episode_test_img[i],0), np.expand_dims(episode_test_label[i],0)
+                    yield episode_test_img[i:i+1], episode_test_label[i:i+1]
 
 gen_train = KerasBatchGenerator().generate()
 gen_test = KerasBatchGenerator(phase = 'test').generate()
@@ -256,13 +256,35 @@ for _ in range(3):
     img, l = next(gen_test)
     print(img.shape,l.shape)
 
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Activation, Dense, Input, Flatten
-from tensorflow.keras.callbacks import ModelCheckpoint
+import tensorflow as tf
+if tf.__version__ < "2.0":
+    from tensorflow.keras.backend import set_session
+    config = tf.ConfigProto()
+    #config.gpu_options.per_process_gpu_memory_fraction = args.gpu_mem
+    config.gpu_options.allow_growth = True
+    set_session(tf.Session(config=config))
+else:
+    #tensorflow 2.0 sets memory growth per default
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+      try:
+        # Currently, memory growth needs to be the same across GPUs
+        for gpu in gpus:
+          tf.config.experimental.set_memory_growth(gpu, True)
+        logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+        print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+      except RuntimeError as e:
+        # Memory growth must be set before GPUs have been initialized
+        print(e)
 
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Activation, Dense, Input, Flatten, Conv2D, Lambda
+from tensorflow.keras.callbacks import ModelCheckpoint
+import tensorflow.keras.backend as K
 
 inputs = Input(shape=(84,84,3))
-flat = Flatten()(inputs)
+conv = Conv2D(10,3,(3,3))(inputs)
+flat = Flatten()(conv)
 x = Dense(cathegories)(flat)
 predictions = Activation('softmax')(x)
 
@@ -271,6 +293,32 @@ model.compile(loss='categorical_crossentropy', optimizer='Adam', metrics=['categ
 
 print(model.summary(line_length=180, positions = [.33, .55, .67, 1.]))
 
+
+
+input1 = Input(shape=(84,84,3))
+input2 = Input(shape=(84,84,3)) #, tensor = K.variable(episode_train_img[0:0]))
+
+encoded_l = model(input1)
+encoded_r = model(input2)
+
+# Add a customized layer to compute the absolute difference between the encodings
+L1_layer = Lambda(lambda tensors:-10*K.sum(K.square(tensors[0] - tensors[1]), keepdims=True))
+L1_distance = L1_layer([encoded_l, encoded_r])
+
+# Add a dense layer with a sigmoid unit to generate the similarity score
+#prediction = Dense(1,activation='exponential')(L1_distance)
+prediction = Activation('exponential')(L1_distance)
+
+# Connect the inputs with the outputs
+siamese_net = Model(inputs=[input1,input2],outputs=prediction)
+
+print("eval", episode_train_img[0:1])
+for i in range(10):
+    a = siamese_net([K.variable(episode_train_img[0:1]), K.variable(episode_train_img[i:i+1])])
+    print('aaaaa',i,K.eval(a), episode_train_label[0:1], episode_train_label[i:i+1])
+siamese_net.compile(loss='binary_crossentropy', optimizer='Adam', metrics=['binary_accuracy'])
+
+print(siamese_net.summary())
 checkpointer = ModelCheckpoint(filepath='checkpoints/model-{epoch:02d}.hdf5', verbose=1)
 
 history = model.fit_generator(gen_train, train_epoch_size, 10, validation_data=gen_test, validation_steps=test_epoch_size, callbacks=[checkpointer]) 
