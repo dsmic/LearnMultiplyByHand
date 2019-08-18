@@ -209,7 +209,7 @@ class MiniImageNetDataLoader(object):
         return this_inputa, this_labela, this_inputb, this_labelb
 
 cathegories = 5
-dataloader = MiniImageNetDataLoader(shot_num=5, way_num=cathegories, episode_test_sample_num=15)
+dataloader = MiniImageNetDataLoader(shot_num=15, way_num=cathegories, episode_test_sample_num=15)
 
 dataloader.generate_data_list(phase='train', episode_num = 20000)
 #dataloader.generate_data_list(phase='val')
@@ -255,12 +255,13 @@ class KerasBatchGenerator(object):
                     yield [[episode_train_img[i:i+1]], [episode_train_img], [episode_train_label]], episode_train_label[i:i+1]
             else:
                 #print(episode_test_img.shape[0])
-                assert(0)
+                #assert(0)
                 for i in range(episode_test_img.shape[0]):
-                    yield [episode_test_img[i:i+1], episode_test_img[i:i+1]], episode_test_label[i:i+1]
+                    yield [[episode_test_img[i:i+1]], [episode_test_img], [episode_test_label]], episode_test_label[i:i+1]
 #        yield [img, K.variable(episode_train_img), K.variable(episode_train_label)], label
         
 keras_gen_train = KerasBatchGenerator()
+keras_gen_test = KerasBatchGenerator('test')
 gen_train = keras_gen_train.generate()
 
 gen_test = KerasBatchGenerator(phase = 'test').generate()
@@ -296,13 +297,17 @@ else:
         print(e)
 
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Activation, Dense, Input, Flatten, Conv2D, Lambda, Reshape
+from tensorflow.keras.layers import Activation, Dense, Input, Flatten, Conv2D, Lambda, Reshape, TimeDistributed
 from tensorflow.keras.callbacks import ModelCheckpoint
 import tensorflow.keras.backend as K
 
-inputs = Input(shape=(84,84,3))
-flat = Reshape((-1,84*84*3))(inputs)
-x = Dense(5)(flat)
+inputs = Input(shape=(None,84,84,3))
+print('the shape', inputs.shape)
+conv1 = TimeDistributed(Conv2D(10, 3, (3,3) , padding='same'))(inputs)
+conv2 = TimeDistributed(Conv2D(10, 3, (3,3) , padding='same'))(conv1)
+conv3 = TimeDistributed(Conv2D(10, 3, (3,3) , padding='same'))(conv2)
+flat = TimeDistributed(Flatten())(conv3)
+x = Dense(10)(flat)
 predictions = Activation('softmax')(x)
 
 model_img = Model(inputs=inputs, outputs=predictions)
@@ -313,8 +318,8 @@ print(model_img.summary(line_length=180, positions = [.33, .55, .67, 1.]))
 
 
 
-input1 = Input(shape=(1,84,84,3))
-input2 = Input(shape=(25,84,84,3)) #, tensor = K.variable(episode_train_img[0:0]))
+input1 = Input(shape=(None,84,84,3))
+input2 = Input(shape=(None,84,84,3)) #, tensor = K.variable(episode_train_img[0:0]))
 
 encoded_l = model_img(input1)
 encoded_r = model_img(input2)
@@ -334,8 +339,8 @@ print(siamese_net.summary(line_length=180, positions = [.33, .55, .67, 1.]))
 
 
 input_lambda1 = Input(shape=(1,84,84,3))
-input_lambda2 = Input(shape=(25,84,84,3))
-input_lambda3 = Input(shape=(25,cathegories))
+input_lambda2 = Input(shape=(None,84,84,3))
+input_lambda3 = Input(shape=(None,cathegories))
 
 s_res = siamese_net([input_lambda1, input_lambda2])
 
@@ -355,7 +360,9 @@ call_lambda_softmax = Activation('softmax')(call_lambda)
 
 lambda_model = Model(inputs = [input_lambda1, input_lambda2, input_lambda3], outputs = call_lambda_softmax)
 
-lambda_model.compile(loss='categorical_crossentropy', optimizer='sgd', metrics=['categorical_accuracy'])
+from tensorflow.keras import optimizers as op
+
+lambda_model.compile(loss='categorical_crossentropy', optimizer=op.SGD(0.001), metrics=['categorical_accuracy'])
 print(lambda_model.summary(line_length=180, positions = [.33, .55, .67, 1.]))
 
 # testing with additional batch axis ?!
@@ -364,7 +371,8 @@ test_lambda = lambda_model([K.expand_dims(K.variable(episode_train_img[0:0+1]),a
 #        
 print('test lambda', K.eval(test_lambda))
 
-lambda_model.fit_generator(keras_gen_train.generate_add_samples(), train_epoch_size, 500, validation_data=keras_gen_train.generate_add_samples(), validation_steps=test_epoch_size) 
+checkpointer = ModelCheckpoint(filepath='checkpoints/model-{epoch:02d}.hdf5', verbose=1)
+lambda_model.fit_generator(keras_gen_train.generate_add_samples(), train_epoch_size, 200, validation_data=keras_gen_test.generate_add_samples(), validation_steps=test_epoch_size, callbacks = [checkpointer]) 
 
 
 def get_weight_grad(model, inputs, outputs):
@@ -387,11 +395,11 @@ def get_layer_output_grad(model, inputs, outputs, layer=-1):
     return output_grad
 
 
-weight_grads = get_weight_grad(lambda_model, [[episode_train_img[0:1]], [episode_train_img[:]], [episode_train_label[:]]],  [episode_train_label[0:1]])
+#weight_grads = get_layer_output_grad(lambda_model, [[episode_train_img[0:1]], [episode_train_img[:]], [episode_train_label[:]]],  [episode_train_label[0:1]])
 
 #weight_grads = get_layer_output_grad(siamese_net, [episode_train_img[0:1],episode_train_img[0:1]],  episode_train_label[0:1])
 
-print(weight_grads)
+#print(weight_grads)
 #
 #input_few = Input(shape=(84,84,3))
 #input_labels = Input(shape=(84,84,3))
