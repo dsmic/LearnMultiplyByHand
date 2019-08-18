@@ -231,10 +231,10 @@ class KerasBatchGenerator(object):
         self.phase = phase
             
     def generate(self):
-        idx = 0
+#        idx = 0
         while True:
-            episode_train_img, episode_train_label, episode_test_img, episode_test_label = \
-                dataloader.get_batch(phase='train', idx=idx)
+#            episode_train_img, episode_train_label, episode_test_img, episode_test_label = \
+#                dataloader.get_batch(phase='train', idx=idx)
             if self.phase == 'train':
                 #print(episode_train_img.shape[0])
                 for i in range(episode_train_img.shape[0]):
@@ -244,7 +244,25 @@ class KerasBatchGenerator(object):
                 for i in range(episode_test_img.shape[0]):
                     yield episode_test_img[i:i+1], episode_test_label[i:i+1]
 
-gen_train = KerasBatchGenerator().generate()
+    def generate_add_samples(self):
+#        idx = 0
+        while True:
+#            episode_train_img, episode_train_label, episode_test_img, episode_test_label = \
+#                dataloader.get_batch(phase='train', idx=idx)
+            if self.phase == 'train':
+                #print(episode_train_img.shape[0])
+                for i in range(episode_train_img.shape[0]):
+                    yield [[episode_train_img[i:i+1]], [episode_train_img], [episode_train_label]], episode_train_label[i:i+1]
+            else:
+                #print(episode_test_img.shape[0])
+                assert(0)
+                for i in range(episode_test_img.shape[0]):
+                    yield [episode_test_img[i:i+1], episode_test_img[i:i+1]], episode_test_label[i:i+1]
+#        yield [img, K.variable(episode_train_img), K.variable(episode_train_label)], label
+        
+keras_gen_train = KerasBatchGenerator()
+gen_train = keras_gen_train.generate()
+
 gen_test = KerasBatchGenerator(phase = 'test').generate()
 
 print('train data check')
@@ -278,70 +296,146 @@ else:
         print(e)
 
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Activation, Dense, Input, Flatten, Conv2D, Lambda
+from tensorflow.keras.layers import Activation, Dense, Input, Flatten, Conv2D, Lambda, Reshape
 from tensorflow.keras.callbacks import ModelCheckpoint
 import tensorflow.keras.backend as K
 
 inputs = Input(shape=(84,84,3))
-conv = Conv2D(10,3,(3,3))(inputs)
-flat = Flatten()(conv)
-x = Dense(cathegories)(flat)
+flat = Reshape((-1,84*84*3))(inputs)
+x = Dense(5)(flat)
 predictions = Activation('softmax')(x)
 
-model = Model(inputs=inputs, outputs=predictions)
+model_img = Model(inputs=inputs, outputs=predictions)
 
-#model.compile(loss='categorical_crossentropy', optimizer='Adam', metrics=['categorical_accuracy'])
+#model_img.compile(loss='categorical_crossentropy', optimizer='Adam', metrics=['categorical_accuracy'])
 
-#print(model.summary(line_length=180, positions = [.33, .55, .67, 1.]))
+print(model_img.summary(line_length=180, positions = [.33, .55, .67, 1.]))
 
 
 
-input1 = Input(shape=(84,84,3))
-input2 = Input(shape=(84,84,3)) #, tensor = K.variable(episode_train_img[0:0]))
+input1 = Input(shape=(1,84,84,3))
+input2 = Input(shape=(25,84,84,3)) #, tensor = K.variable(episode_train_img[0:0]))
 
-encoded_l = model(input1)
-encoded_r = model(input2)
-
+encoded_l = model_img(input1)
+encoded_r = model_img(input2)
+    
 # Add a customized layer to compute the absolute difference between the encodings
-L1_layer = Lambda(lambda tensors:1-K.sum(K.abs(tensors[0] - tensors[1]), keepdims=True))
+L1_layer = Lambda(lambda tensors:K.abs(tensors[0] - tensors[1]))
 L1_distance = L1_layer([encoded_l, encoded_r])
-
+    
 # Add a dense layer with a sigmoid unit to generate the similarity score
-#prediction = Dense(1,activation='exponential')(L1_distance)
-prediction = Activation('exponential')(L1_distance)
-
+prediction = Dense(1)(L1_distance)
+    
 # Connect the inputs with the outputs
-siamese_net = Model(inputs=[input1,input2],outputs=L1_distance)
-#siamese_net.compile(loss='categorical_crossentropy', optimizer='Adam', metrics=['binary_accuracy'])
-#print(siamese_net.summary())
+siamese_net = Model(inputs=[input1,input2],outputs=prediction)
 
-print("eval", episode_train_img[0:1])
-sum_a = np.zeros(episode_train_label[0:1].shape)
-for i in range(0,train_epoch_size):
-    a = siamese_net([K.variable(episode_train_img[0:1]), K.variable(episode_train_img[i:i+1])])
-    sum_a += K.variable(episode_train_label[i:i+1]) * a
-    #print('aaaaa',i,K.eval(a), episode_train_label[0:1], episode_train_label[i:i+1])
+#siamese_net.compile(loss='categorical_crossentropy', optimizer='Adam', metrics=['categorical_accuracy'])
+print(siamese_net.summary(line_length=180, positions = [.33, .55, .67, 1.]))
 
 
-print('suma',episode_train_label[0:1], K.eval(K.softmax(sum_a)))
+input_lambda1 = Input(shape=(1,84,84,3))
+input_lambda2 = Input(shape=(25,84,84,3))
+input_lambda3 = Input(shape=(25,cathegories))
 
-sum_few = np.zeros(episode_train_label[0:1].shape)
-input_few = Input(shape=(84,84,3))
-for i in range(0,train_epoch_size):
-    a = siamese_net([input_few, K.variable(episode_train_img[i:i+1])])
-    sum_few += K.variable(episode_train_label[i:i+1]) * a
-    print(i)
+s_res = siamese_net([input_lambda1, input_lambda2])
 
-full_few_shot = Model(inputs = input_few, outputs = sum_few)
+def call(x):
+    [k0,l2] = x
+    #k0 = siamese_net([x1,x2])
+    #k1 = K.expand_dims(tf.reshape(k0, (-1,1)), axis=0)
+    k2 = k0 * l2
+    r = K.sum(k2, axis = 1)
+    print('l2',l2.shape,'k0',k0.shape, 'k2',k2.shape, 'r',r.shape)
+    return r
+#def call_shape(input_shape):
+#    return (5,)
 
-print('net ready')
+call_lambda = Lambda(call)([s_res, input_lambda3])
+call_lambda_softmax = Activation('softmax')(call_lambda)
+
+lambda_model = Model(inputs = [input_lambda1, input_lambda2, input_lambda3], outputs = call_lambda_softmax)
+
+lambda_model.compile(loss='categorical_crossentropy', optimizer='sgd', metrics=['categorical_accuracy'])
+print(lambda_model.summary(line_length=180, positions = [.33, .55, .67, 1.]))
+
+# testing with additional batch axis ?!
+i=1
+test_lambda = lambda_model([K.expand_dims(K.variable(episode_train_img[0:0+1]),axis=0),K.expand_dims(K.variable(episode_train_img), axis=0), K.expand_dims(K.variable(episode_train_label), axis=0)])
+#        
+print('test lambda', K.eval(test_lambda))
+
+lambda_model.fit_generator(keras_gen_train.generate_add_samples(), train_epoch_size, 500, validation_data=keras_gen_train.generate_add_samples(), validation_steps=test_epoch_size) 
 
 
-full_few_shot.compile(loss='categorical_crossentropy', optimizer='Adam', metrics=['categorical_accuracy'])
+def get_weight_grad(model, inputs, outputs):
+    """ Gets gradient of model for given inputs and outputs for all weights"""
+    grads = model.optimizer.get_gradients(model.total_loss, model.trainable_weights)
+    symb_inputs = (model._feed_inputs + model._feed_targets + model._feed_sample_weights)
+    f = K.function(symb_inputs, grads)
+    x, y, sample_weight = model._standardize_user_data(inputs, outputs)
+    output_grad = f(x + y + sample_weight)
+    return output_grad
 
-print(full_few_shot.summary())
 
-checkpointer = ModelCheckpoint(filepath='checkpoints/model-{epoch:02d}.hdf5', verbose=1)
+def get_layer_output_grad(model, inputs, outputs, layer=-1):
+    """ Gets gradient a layer output for given inputs and outputs"""
+    grads = model.optimizer.get_gradients(model.total_loss, model.layers[layer].output)
+    symb_inputs = (model._feed_inputs + model._feed_targets + model._feed_sample_weights)
+    f = K.function(symb_inputs, grads)
+    x, y, sample_weight = model._standardize_user_data(inputs, outputs)
+    output_grad = f(x + y + sample_weight)
+    return output_grad
 
-history = full_few_shot.fit_generator(gen_train, train_epoch_size, 100, validation_data=gen_test, validation_steps=test_epoch_size) 
 
+weight_grads = get_weight_grad(lambda_model, [[episode_train_img[0:1]], [episode_train_img[:]], [episode_train_label[:]]],  [episode_train_label[0:1]])
+
+#weight_grads = get_layer_output_grad(siamese_net, [episode_train_img[0:1],episode_train_img[0:1]],  episode_train_label[0:1])
+
+print(weight_grads)
+#
+#input_few = Input(shape=(84,84,3))
+#input_labels = Input(shape=(84,84,3))
+#
+#output_few = Lambda(call)([input_few,K.variable(episode_train_img), K.variable(episode_train_label)])
+#
+#model_few = Model(inputs = [input_few, input_labels], outputs = output_few)
+#
+#print('test few', K.eval(model_few([K.variable(episode_train_img[0:0+1]),K.variable(episode_train_label)])))
+    
+##sum_few = np.zeros(episode_train_label[0:1].shape)
+#input_few = Input(shape=(84,84,3))
+#for i in range(0,2):
+#    a = siamese_net([input_few, K.variable(episode_train_img[i:i+1])])
+#    if i == 0:
+#        sum_few = K.variable(episode_train_label[i:i+1]) * a
+#    else:
+#        sum_few += K.variable(episode_train_label[i:i+1]) * a
+#    print(i)
+#sum_few_softmax = Activation('softmax')(sum_few)
+#full_few_shot = Model(inputs = input_few, outputs = sum_few_softmax)
+#
+##print('net_ready')
+##aa = K.variable(episode_train_img[0:1])
+##a = full_few_shot(aa)
+##print('net ready', K.eval(a))
+##
+#from tensorflow.keras.optimizers import  Adam
+#full_few_shot.compile(loss='categorical_crossentropy', optimizer=Adam(), metrics=['categorical_accuracy'])
+#
+#print(full_few_shot.summary())
+#
+#
+#print("eval", episode_train_img[0:1])
+#sum_a = np.zeros(episode_train_label[0:1].shape)
+#for i in range(0,train_epoch_size):
+#    a = siamese_net([K.variable(episode_train_img[0:1]), K.variable(episode_train_img[i:i+1])])
+#    sum_a += K.variable(episode_train_label[i:i+1]) * a
+#    print('aaaaa',i,K.eval(a), episode_train_label[0:1], episode_train_label[i:i+1])
+#
+#
+##print('suma',episode_train_label[0:1], K.eval(K.softmax(sum_a)), K.eval(full_few_shot(K.variable(episode_train_img[0:1]))))
+#
+#checkpointer = ModelCheckpoint(filepath='checkpoints/model-{epoch:02d}.hdf5', verbose=1)
+#
+#history = full_few_shot.fit_generator(gen_train.generate(), train_epoch_size, 100, validation_data=gen_test, validation_steps=test_epoch_size) 
+#

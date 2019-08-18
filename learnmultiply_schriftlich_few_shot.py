@@ -15,13 +15,13 @@ from random import shuffle
 from random import random, randint
 
 import numpy as np
-from keras.utils import to_categorical
-from keras.models import Sequential, Model, Input
-from keras.layers import Activation, Embedding, Dense, Flatten, GlobalMaxPooling1D, GlobalAveragePooling1D, Lambda, Concatenate
-from keras.layers import LSTM, CuDNNLSTM, CuDNNGRU, SimpleRNN, GRU
-from keras.optimizers import Adam, SGD, RMSprop, Nadam
-from keras.callbacks import ModelCheckpoint
-import keras.backend
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.models import Sequential, Model
+from tensorflow.keras.layers import Activation, Embedding, Dense, Flatten, GlobalMaxPooling1D, GlobalAveragePooling1D, Lambda, Concatenate, Input
+from tensorflow.keras.layers import LSTM, CuDNNLSTM, CuDNNGRU, SimpleRNN, GRU
+from tensorflow.keras.optimizers import Adam, SGD, RMSprop, Nadam
+from tensorflow.keras.callbacks import ModelCheckpoint
+import tensorflow.keras.backend
 
 import copy
 
@@ -60,12 +60,12 @@ parser.add_argument('--only_exact', dest='only_exact', action='store_true')
 args = parser.parse_args()
 
 import tensorflow as tf
-from keras.backend.tensorflow_backend import set_session
+from tensorflow.keras.backend import set_session
 config = tf.ConfigProto()
 config.gpu_options.per_process_gpu_memory_fraction = args.gpu_mem
 set_session(tf.Session(config=config))
 
-keras.backend.set_floatx(args.float_type)
+tensorflow.keras.backend.set_floatx(args.float_type)
 
 
 
@@ -114,21 +114,21 @@ max_output = len(vocab)
 
 
 def attentions_layer(x):
-  from keras import backend as K
+  from tensorflow.keras import backend as K
   x1 = x[:,:,1:]
   x2 = x[:,:,0:1]
   x2 = K.softmax(x2)
-#  x2 = keras.backend.print_tensor(x2, str(x2))
-#  x1 = keras.backend.print_tensor(x1, str(x1))
+#  x2 = tensorflow.keras.backend.print_tensor(x2, str(x2))
+#  x1 = tensorflow.keras.backend.print_tensor(x1, str(x1))
   x=x1*x2
-#  x = keras.backend.print_tensor(x, str(x))
+#  x = tensorflow.keras.backend.print_tensor(x, str(x))
   return x
 
 hidden_size = args.hidden_size
 
 if args.pretrained_name is not None:
-  from keras.models import load_model
-  siamese_net = load_model(args.pretrained_name, custom_objects = { "keras": keras , "args":args})
+  from tensorflow.keras.models import load_model
+  siamese_net = load_model(args.pretrained_name, custom_objects = { "tensorflow.keras": tensorflow.keras , "args":args})
   #print("loaded model",model.layers[0].input_shape[1])
 #  ml = model.layers[0].input_shape[1]
 #  if (ml != max_length):
@@ -188,7 +188,7 @@ else:
   encoded_r = model(input2)
     
   # Add a customized layer to compute the absolute difference between the encodings
-  L1_layer = Lambda(lambda tensors:keras.backend.abs(tensors[0] - tensors[1]))
+  L1_layer = Lambda(lambda tensors:tensorflow.keras.backend.abs(tensors[0] - tensors[1]))
   L1_distance = L1_layer([encoded_l, encoded_r])
     
   # Add a dense layer with a sigmoid unit to generate the similarity score
@@ -208,7 +208,7 @@ startline = inspect.currentframe().f_lineno
 print(a[startline+1:startline+2])
 optimizer = RMSprop(lr=args.lr, rho=0.9, epsilon=None, decay=0)
 
-print("learning rate",keras.backend.eval(optimizer.lr))
+print("learning rate",tensorflow.keras.backend.eval(optimizer.lr))
 #model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['categorical_accuracy'])
 
 #print(model.summary())
