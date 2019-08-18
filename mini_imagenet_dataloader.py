@@ -5,7 +5,13 @@
 ## Copyright (c) 2019
 ##
 ## This source code is licensed under the MIT-style license found in the
-## LICENSE file in the root directory of this source tree
+## LICENSE file in the root directory 
+## of https://github.com/y2l/mini-imagenet-tools
+##
+## This file is modified for tensorflow.keras usage by D. Schmicker
+##
+## original file from https://github.com/y2l/mini-imagenet-tools
+##
 ##+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 import os
@@ -209,7 +215,7 @@ class MiniImageNetDataLoader(object):
         return this_inputa, this_labela, this_inputb, this_labelb
 
 cathegories = 5
-dataloader = MiniImageNetDataLoader(shot_num=15, way_num=cathegories, episode_test_sample_num=15)
+dataloader = MiniImageNetDataLoader(shot_num=5, way_num=cathegories, episode_test_sample_num=15)
 
 dataloader.generate_data_list(phase='train', episode_num = 20000)
 #dataloader.generate_data_list(phase='val')
@@ -227,15 +233,15 @@ print("epoch training size:", train_epoch_size, episode_train_label.shape[0], "e
 
 class KerasBatchGenerator(object):
 
-    def __init__(self, phase = 'train'):
-        self.phase = phase
+#    def __init__(self):
+
             
-    def generate(self):
+    def generate(self, phase='train'):
 #        idx = 0
         while True:
 #            episode_train_img, episode_train_label, episode_test_img, episode_test_label = \
 #                dataloader.get_batch(phase='train', idx=idx)
-            if self.phase == 'train':
+            if phase == 'train':
                 #print(episode_train_img.shape[0])
                 for i in range(episode_train_img.shape[0]):
                     yield episode_train_img[i:i+1], episode_train_label[i:i+1]
@@ -244,27 +250,30 @@ class KerasBatchGenerator(object):
                 for i in range(episode_test_img.shape[0]):
                     yield episode_test_img[i:i+1], episode_test_label[i:i+1]
 
-    def generate_add_samples(self):
-#        idx = 0
+    def generate_add_samples(self, phase = 'train'):
+        self.idx = 0
         while True:
-#            episode_train_img, episode_train_label, episode_test_img, episode_test_label = \
-#                dataloader.get_batch(phase='train', idx=idx)
-            if self.phase == 'train':
+            episode_train_img, episode_train_label, episode_test_img, episode_test_label = \
+                dataloader.get_batch(phase='train', idx=self.idx)
+            if phase == 'train':
+                self.idx += 1 # only train phase allowed to change
                 #print(episode_train_img.shape[0])
+                assert(episode_train_img.shape[0] == 25)
                 for i in range(episode_train_img.shape[0]):
                     yield [[episode_train_img[i:i+1]], [episode_train_img], [episode_train_label]], episode_train_label[i:i+1]
             else:
                 #print(episode_test_img.shape[0])
                 #assert(0)
+                assert(episode_test_img.shape[0] == 75)
+                #assert(self.idx < 50)
                 for i in range(episode_test_img.shape[0]):
                     yield [[episode_test_img[i:i+1]], [episode_test_img], [episode_test_label]], episode_test_label[i:i+1]
 #        yield [img, K.variable(episode_train_img), K.variable(episode_train_label)], label
         
 keras_gen_train = KerasBatchGenerator()
-keras_gen_test = KerasBatchGenerator('test')
 gen_train = keras_gen_train.generate()
 
-gen_test = KerasBatchGenerator(phase = 'test').generate()
+gen_test = KerasBatchGenerator().generate('test')
 
 print('train data check')
 for _ in range(3):
@@ -297,17 +306,17 @@ else:
         print(e)
 
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Activation, Dense, Input, Flatten, Conv2D, Lambda, Reshape, TimeDistributed
+from tensorflow.keras.layers import Activation, Dense, Input, Flatten, Conv2D, Lambda, TimeDistributed, MaxPooling2D
 from tensorflow.keras.callbacks import ModelCheckpoint
 import tensorflow.keras.backend as K
 
 inputs = Input(shape=(None,84,84,3))
 print('the shape', inputs.shape)
-conv1 = TimeDistributed(Conv2D(10, 3, (3,3) , padding='same'))(inputs)
-conv2 = TimeDistributed(Conv2D(10, 3, (3,3) , padding='same'))(conv1)
-conv3 = TimeDistributed(Conv2D(10, 3, (3,3) , padding='same'))(conv2)
-flat = TimeDistributed(Flatten())(conv3)
-x = Dense(10)(flat)
+conv1 = TimeDistributed(Conv2D(100, 7, 1 , activation = 'relu'))(inputs)
+conv2 = TimeDistributed(MaxPooling2D(pool_size = (9,9)))(conv1)
+#conv3 = TimeDistributed(Conv2D(5, 5, (3,3) , padding='same', activation = 'relu'))(conv2)
+flat = TimeDistributed(Flatten())(conv2)
+x = Dense(100, activation = 'relu')(flat)
 predictions = Activation('softmax')(x)
 
 model_img = Model(inputs=inputs, outputs=predictions)
@@ -372,7 +381,7 @@ test_lambda = lambda_model([K.expand_dims(K.variable(episode_train_img[0:0+1]),a
 print('test lambda', K.eval(test_lambda))
 
 checkpointer = ModelCheckpoint(filepath='checkpoints/model-{epoch:02d}.hdf5', verbose=1)
-lambda_model.fit_generator(keras_gen_train.generate_add_samples(), train_epoch_size, 200, validation_data=keras_gen_test.generate_add_samples(), validation_steps=test_epoch_size, callbacks = [checkpointer]) 
+lambda_model.fit_generator(keras_gen_train.generate_add_samples(), train_epoch_size, 500, validation_data=keras_gen_train.generate_add_samples('test'), validation_steps=test_epoch_size, callbacks = [checkpointer]) 
 
 
 def get_weight_grad(model, inputs, outputs):
