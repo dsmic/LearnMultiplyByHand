@@ -27,7 +27,9 @@ parser.add_argument('--pretrained_name', dest='pretrained_name',  type=str, defa
 parser.add_argument('--dataset', dest='dataset',  type=str, default='train')
 parser.add_argument('--lr', dest='lr',  type=float, default=1e-3)
 parser.add_argument('--epochs', dest='epochs',  type=int, default=10)
-
+parser.add_argument('--final_name', dest='final_name',  type=str, default='final_model')
+parser.add_argument('--shuffle_images', dest='shuffle_images', action='store_true')
+parser.add_argument('--enable_idx_increase', dest='enable_idx_increase', action='store_true')
 args = parser.parse_args()
 
 class MiniImageNetDataLoader(object):
@@ -44,7 +46,7 @@ class MiniImageNetDataLoader(object):
         if not os.path.exists(npy_dir):
             os.mkdir(npy_dir)
 
-        self.npy_base_dir = npy_dir + str(self.shot_num) + 'shot_' + str(self.way_num) + 'way_' + str(episode_test_sample_num) + '/'
+        self.npy_base_dir = npy_dir + str(self.shot_num) + 'shot_' + str(self.way_num) + 'way_' + str(episode_test_sample_num) + 'shuffled_' + str(args.shuffle_images) + '/'
         if not os.path.exists(self.npy_base_dir):
             os.mkdir(self.npy_base_dir)
 
@@ -84,7 +86,7 @@ class MiniImageNetDataLoader(object):
                 for _ in trange(episode_num):
                     sampled_character_folders = random.sample(folders, self.way_num)
                     random.shuffle(sampled_character_folders)
-                    labels_and_images = self.get_images(sampled_character_folders, range(self.way_num), nb_samples=self.num_samples_per_class, shuffle=False)
+                    labels_and_images = self.get_images(sampled_character_folders, range(self.way_num), nb_samples=self.num_samples_per_class, shuffle=args.shuffle_images)
                     labels = [li[0] for li in labels_and_images]
                     filenames = [li[1] for li in labels_and_images]
                     all_filenames.extend(filenames)
@@ -102,7 +104,7 @@ class MiniImageNetDataLoader(object):
                 for _ in trange(episode_num):
                     sampled_character_folders = random.sample(folders, self.way_num)
                     random.shuffle(sampled_character_folders)
-                    labels_and_images = self.get_images(sampled_character_folders, range(self.way_num), nb_samples=self.num_samples_per_class, shuffle=False)
+                    labels_and_images = self.get_images(sampled_character_folders, range(self.way_num), nb_samples=self.num_samples_per_class, shuffle=args.shuffle_images)
                     labels = [li[0] for li in labels_and_images]
                     filenames = [li[1] for li in labels_and_images]
                     all_filenames.extend(filenames)
@@ -120,7 +122,7 @@ class MiniImageNetDataLoader(object):
                 for _ in trange(episode_num):
                     sampled_character_folders = random.sample(folders, self.way_num)
                     random.shuffle(sampled_character_folders)
-                    labels_and_images = self.get_images(sampled_character_folders, range(self.way_num), nb_samples=self.num_samples_per_class, shuffle=False)
+                    labels_and_images = self.get_images(sampled_character_folders, range(self.way_num), nb_samples=self.num_samples_per_class, shuffle=args.shuffle_images)
                     labels = [li[0] for li in labels_and_images]
                     filenames = [li[1] for li in labels_and_images]
                     all_filenames.extend(filenames)
@@ -159,6 +161,8 @@ class MiniImageNetDataLoader(object):
     def process_batch(self, input_filename_list, input_label_list, batch_sample_num, reshape_with_one=True):
         new_path_list = []
         new_label_list = []
+        #assert(input_filename_list[0].startswith('./processed_images/test'))
+        #print('process batch', input_filename_list[0])
         for k in range(batch_sample_num):
             class_idxs = list(range(0, self.way_num))
             random.shuffle(class_idxs)
@@ -219,6 +223,7 @@ class MiniImageNetDataLoader(object):
             this_task_te_filenames += this_class_filenames[epitr_sample_num:]
             this_task_te_labels += this_class_label[epitr_sample_num:]
 
+        #print(this_task_tr_filenames[0][23:33],this_task_tr_labels[0],this_task_te_filenames[0][23:33],this_task_te_labels[0])
         this_inputa, this_labela = self.process_batch(this_task_tr_filenames, this_task_tr_labels, epitr_sample_num, reshape_with_one=False)
         this_inputb, this_labelb = self.process_batch(this_task_te_filenames, this_task_te_labels, epite_sample_num, reshape_with_one=False)
 
@@ -227,19 +232,25 @@ class MiniImageNetDataLoader(object):
 cathegories = 5
 dataloader = MiniImageNetDataLoader(shot_num=5, way_num=cathegories, episode_test_sample_num=15)
 
-dataloader.generate_data_list(phase='train', episode_num = 50000)
+dataloader.generate_data_list(phase='train')
 dataloader.generate_data_list(phase='val')
 dataloader.generate_data_list(phase='test')
 
-dataloader.load_list(phase=args.dataset)
+print('mode is',args.dataset)
+dataloader.load_list('all')
 
-episode_train_img, episode_train_label, episode_test_img, episode_test_label = \
-        dataloader.get_batch(phase=args.dataset, idx=0) 
+#print('train',dataloader.train_filenames)
+#print('val',dataloader.val_filenames)
+#print('test',dataloader.test_filenames)
 
-train_epoch_size = episode_train_img.shape[0]
-test_epoch_size = episode_test_img.shape[0]
 
-print("epoch training size:", train_epoch_size, episode_train_label.shape[0], "epoch testing size", test_epoch_size)
+base_train_img, base_train_label, base_test_img, base_test_label = \
+        dataloader.get_batch(phase='train', idx=0) 
+
+train_epoch_size = base_train_img.shape[0]
+test_epoch_size = base_test_img.shape[0]
+
+print("epoch training size:", train_epoch_size, base_train_label.shape[0], "epoch testing size", test_epoch_size)
 
 class KerasBatchGenerator(object):
 
@@ -253,32 +264,45 @@ class KerasBatchGenerator(object):
 #                dataloader.get_batch(phase='train', idx=idx)
             if phase == 'train':
                 #print(episode_train_img.shape[0])
-                for i in range(episode_train_img.shape[0]):
-                    yield episode_train_img[i:i+1], episode_train_label[i:i+1]
+                for i in range(base_train_img.shape[0]):
+                    yield base_train_img[i:i+1], base_train_label[i:i+1]
             else:
                 #print(episode_test_img.shape[0])
-                for i in range(episode_test_img.shape[0]):
-                    yield episode_test_img[i:i+1], episode_test_label[i:i+1]
+                for i in range(base_test_img.shape[0]):
+                    yield base_test_img[i:i+1], base_test_label[i:i+1]
 
     def generate_add_samples(self, phase = 'train'):
         self.idx = 0
         while True:
             episode_train_img, episode_train_label, episode_test_img, episode_test_label = \
                 dataloader.get_batch(phase=args.dataset, idx=self.idx)
+
+            # this depends on what we are trying to train.
+            # care must be taken, that with a different dataset the labels have a different meaning. Thus if we use a new dataset, we must 
+            # use network_base which fits to the database. Therefore there must be taken images with label from the same dataset.
+            network_base_img = episode_train_img
+            network_base_label = episode_train_label
+
             if phase == 'train':
-                self.idx += 1 # only train phase allowed to change
+                if args.enable_idx_increase:
+                    self.idx += 1 # only train phase allowed to change
                 #print(episode_train_img.shape[0])
-                assert(episode_train_img.shape[0] == 25)
+                #assert(episode_train_img.shape[0] == 25)
                 for i in range(episode_train_img.shape[0]):
-                    yield [[episode_train_img[i:i+1]], [episode_train_img], [episode_train_label]], episode_train_label[i:i+1]
+                    yield [[episode_train_img[i:i+1]], [network_base_img], [network_base_label]], episode_train_label[i:i+1]
             else:
                 #print(episode_test_img.shape[0])
                 #assert(0)
-                assert(episode_test_img.shape[0] == 75)
+                #assert(episode_test_img.shape[0] == 75)
                 #assert(self.idx < 50)
                 for i in range(episode_test_img.shape[0]):
-                    yield [[episode_test_img[i:i+1]], [episode_test_img], [episode_test_label]], episode_test_label[i:i+1]
-#        yield [img, K.variable(episode_train_img), K.variable(episode_train_label)], label
+                    #print('i',i)
+                    yield [[episode_test_img[i:i+1]], [network_base_img], [network_base_label]], episode_test_label[i:i+1]
+
+
+
+
+
         
 keras_gen_train = KerasBatchGenerator()
 gen_train = keras_gen_train.generate()
@@ -323,11 +347,13 @@ import tensorflow.keras
 
 inputs = Input(shape=(None,84,84,3))
 print('the shape', inputs.shape)
-conv1 = TimeDistributed(Conv2D(100, 7, 1 , activation = 'relu'))(inputs)
-conv2 = TimeDistributed(MaxPooling2D(pool_size = (9,9)))(conv1)
+conv1 = TimeDistributed(Conv2D(50, 7, 1 , activation = 'relu'))(inputs)
+conv2 = TimeDistributed(MaxPooling2D(pool_size = (3,3)))(conv1)
+conv3 = TimeDistributed(Conv2D(200, 7, 1 , activation = 'relu'))(conv2)
+conv4 = TimeDistributed(MaxPooling2D(pool_size = (3,3)))(conv3)
 #conv3 = TimeDistributed(Conv2D(5, 5, (3,3) , padding='same', activation = 'relu'))(conv2)
-flat = TimeDistributed(Flatten())(conv2)
-x = Dense(100, activation = 'relu')(flat)
+flat = TimeDistributed(Flatten())(conv4)
+x = TimeDistributed(Dense(100, activation = 'relu'))(flat)
 predictions = Activation('softmax')(x)
 
 model_img = Model(inputs=inputs, outputs=predictions)
@@ -393,7 +419,7 @@ print(lambda_model.summary(line_length=180, positions = [.33, .55, .67, 1.]))
 
 # testing with additional batch axis ?!
 i=1
-test_lambda = lambda_model([K.expand_dims(K.variable(episode_train_img[0:0+1]),axis=0),K.expand_dims(K.variable(episode_train_img), axis=0), K.expand_dims(K.variable(episode_train_label), axis=0)])
+test_lambda = lambda_model([K.expand_dims(K.variable(base_train_img[0:0+1]),axis=0),K.expand_dims(K.variable(base_train_img), axis=0), K.expand_dims(K.variable(base_train_label), axis=0)])
 #        
 print('test lambda', K.eval(test_lambda))
 
@@ -402,7 +428,8 @@ print('test lambda', K.eval(test_lambda))
 checkpointer = ModelCheckpoint(filepath='checkpoints/model-{epoch:02d}.hdf5', verbose=1)
 tensorboard = TensorBoard()
 lambda_model.fit_generator(keras_gen_train.generate_add_samples(), train_epoch_size, args.epochs, 
-                           validation_data=keras_gen_train.generate_add_samples('test'), validation_steps=test_epoch_size, callbacks = [checkpointer, tensorboard]) 
+                           validation_data=keras_gen_train.generate_add_samples('test'), validation_steps=test_epoch_size, callbacks = [tensorboard]) 
+lambda_model.save(args.final_name+'.hdf5')
 
 
 def get_weight_grad(model, inputs, outputs):
