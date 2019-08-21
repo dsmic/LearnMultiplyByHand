@@ -471,12 +471,6 @@ def all_layers(model):
             layers.append(l)
     return layers
        
-for l in all_layers(siamese_net):
-    l2=l
-    if isinstance(l,TimeDistributed):
-        l2=l.layer
-    print(l2.name,l2.trainable, len(l2.get_weights()))
-
 lambda_model_layers = all_layers(lambda_model)
 for l in range(len(lambda_model_layers)):
     l2=lambda_model_layers[l]
@@ -486,7 +480,7 @@ for l in range(len(lambda_model_layers)):
         p='timedi'
     if args.enable_only_layers_of_list is not None:
         l2.trainable = False
-    print(l, p,l2.name,l2.trainable, len(l2.get_weights()))
+    print('{:10} {:10} {:20} {:10}  {:10}'.format(l, p,l2.name, ("fixed", "trainable")[l2.trainable], l2.count_params()))
 
 if args.enable_only_layers_of_list is not None:
     print('\nenable some layers for training')
@@ -500,7 +494,7 @@ if args.enable_only_layers_of_list is not None:
         if isinstance(l2,TimeDistributed):
             l2=l2.layer
             p='timedi'
-        print(l, p,l2.name,l2.trainable, len(l2.get_weights()))
+        print('{:10} {:10} {:20} {:10}  {:10}'.format(l, p,l2.name, ("fixed", "trainable")[l2.trainable], l2.count_params()))
 
 #after loading to set learning rate
 lambda_model.compile(loss='categorical_crossentropy', optimizer=op.SGD(args.lr), metrics=['categorical_accuracy'])
