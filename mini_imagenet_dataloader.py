@@ -389,16 +389,21 @@ import tensorflow.keras
 
 inputs = Input(shape=(None,84,84,3))
 print('the shape', inputs.shape)
-conv1 = TimeDistributed(Conv2D(50, 7, 1 , activation = 'relu'))(inputs)
-conv2 = TimeDistributed(MaxPooling2D(pool_size = (3,3)))(conv1)
-conv3 = TimeDistributed(Conv2D(100, 7, 1 , activation = 'relu'))(conv2)
-conv4 = TimeDistributed(MaxPooling2D(pool_size = (3,3)))(conv3)
-#conv3 = TimeDistributed(Conv2D(5, 5, (3,3) , padding='same', activation = 'relu'))(conv2)
-flat = TimeDistributed(Flatten())(conv4)
-x = TimeDistributed(Dense(100, activation = 'relu'))(flat)
-predictions = Activation('softmax')(x)
+conv1 = TimeDistributed(Conv2D(64, 3, padding='same', activation = 'relu'))(inputs)
+pool1 = TimeDistributed(MaxPooling2D(pool_size = 2))(conv1)
+conv2 = TimeDistributed(Conv2D(64, 3, padding='same', activation = 'relu'))(pool1)
+pool2 = TimeDistributed(MaxPooling2D(pool_size = 2))(conv2)
+conv3 = TimeDistributed(Conv2D(64, 3, padding='same', activation = 'relu'))(pool2)
+pool3 = TimeDistributed(MaxPooling2D(pool_size = 2))(conv3)
+conv4 = TimeDistributed(Conv2D(64, 3, padding='same', activation = 'relu'))(pool3)
+pool4 = TimeDistributed(MaxPooling2D(pool_size = 2))(conv4)
 
-model_img = Model(inputs=inputs, outputs=predictions)
+#conv3 = TimeDistributed(Conv2D(5, 5, (3,3) , padding='same', activation = 'relu'))(conv2)
+flat = TimeDistributed(Flatten())(pool4)
+#x = TimeDistributed(Dense(100, activation = 'relu'))(flat)
+#predictions = Activation('softmax')(x)
+
+model_img = Model(inputs=inputs, outputs=flat)
 
 #model_img.compile(loss='categorical_crossentropy', optimizer='Adam', metrics=['categorical_accuracy'])
 
