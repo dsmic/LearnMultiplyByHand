@@ -1,27 +1,23 @@
 ##+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-## Created by: Yaoyao Liu
-## NUS School of Computing
-## Email: yaoyao.liu@nus.edu.sg
-## Copyright (c) 2019
+## This file tests few shot learning
 ##
-## This source code is licensed under the MIT-style license found in the
-## LICENSE file in the root directory 
-## of https://github.com/y2l/mini-imagenet-tools
+## Prototype learning with tensorflow.keras  by D. Schmicker
 ##
-## This file is modified for tensorflow.keras usage by D. Schmicker
-##
-## original file from https://github.com/y2l/mini-imagenet-tools
+## using  https://github.com/y2l/mini-imagenet-tools
 ##
 ##+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-import os
-import random
-import numpy as np
-from tqdm import trange
-import imageio
 import ast
-
+from mini_imagenet_dataloader import MiniImageNetDataLoader
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Activation, Dense, Input, Flatten, Conv2D, Lambda, TimeDistributed, MaxPooling2D
+from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard
+import tensorflow.keras.backend as K
+import tensorflow.keras
+from tensorflow.keras import optimizers as op
+import tensorflow as tf
 import argparse
+
 parser = argparse.ArgumentParser(description='train recurrent net.')
 parser.add_argument('--pretrained_name', dest='pretrained_name',  type=str, default=None)
 parser.add_argument('--dataset', dest='dataset',  type=str, default='train')
@@ -42,7 +38,6 @@ args = parser.parse_args()
 #os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 ###########################################
 
-from mini_imagenet_dataloader import MiniImageNetDataLoader
 
 class OurMiniImageNetDataLoader(MiniImageNetDataLoader):
     # adding functions we need
@@ -89,21 +84,12 @@ test_epoch_size = base_test_img.shape[0]
 print("epoch training size:", train_epoch_size, base_train_label.shape[0], "epoch testing size", test_epoch_size)
 
 class KerasBatchGenerator(object):
-
-#    def __init__(self):
-
-            
     def generate(self, phase='train'):
-#        idx = 0
         while True:
-#            episode_train_img, episode_train_label, episode_test_img, episode_test_label = \
-#                dataloader.get_batch(phase='train', idx=idx)
             if phase == 'train':
-                #print(episode_train_img.shape[0])
                 for i in range(train_epoch_size):
                     yield base_train_img[i:i+1], base_train_label[i:i+1]
             else:
-                #print(episode_test_img.shape[0])
                 for i in range(test_epoch_size):
                     yield base_test_img[i:i+1], base_test_label[i:i+1]
 
@@ -140,24 +126,12 @@ class KerasBatchGenerator(object):
                         print("all data used, starting from beginning")
                         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
                         
-                #print(episode_train_img.shape[0])
-                #assert(episode_train_img.shape[0] == 25)
                 for i in range(train_epoch_size):
                     yield [[episode_train_img[i:i+1]], [network_base_img], [network_base_label]], episode_train_label[i:i+1]
             else:
-                #print(episode_test_img.shape[0])
-                #assert(0)
-                #assert(episode_test_img.shape[0] == 75)
-                #assert(self.idx < 50)
                 for i in range(test_epoch_size):
-                    #print('i',i)
                     yield [[episode_test_img[i:i+1]], [network_base_img], [network_base_label]], episode_test_label[i:i+1]
 
-
-
-
-
-        
 keras_gen_train = KerasBatchGenerator()
 gen_train = keras_gen_train.generate()
 
@@ -172,7 +146,6 @@ for _ in range(3):
     img, l = next(gen_test)
     print(img.shape,l.shape)
 
-import tensorflow as tf
 if tf.__version__ < "2.0":
     from tensorflow.keras.backend import set_session
     config = tf.ConfigProto()
@@ -193,12 +166,6 @@ else:
         # Memory growth must be set before GPUs have been initialized
         print(e)
 
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Activation, Dense, Input, Flatten, Conv2D, Lambda, TimeDistributed, MaxPooling2D
-from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard
-import tensorflow.keras.backend as K
-import tensorflow.keras
-
 inputs = Input(shape=(None,84,84,3))
 print('the shape', inputs.shape)
 conv1 = TimeDistributed(Conv2D(64, 3, padding='same', activation = 'relu'))(inputs)
@@ -212,7 +179,6 @@ pool4 = TimeDistributed(MaxPooling2D(pool_size = 2))(conv4)
 conv5 = TimeDistributed(Conv2D(64, 3, padding='same', activation = 'relu'))(pool4)
 pool5 = TimeDistributed(MaxPooling2D(pool_size = 2))(conv5)
 
-#conv3 = TimeDistributed(Conv2D(5, 5, (3,3) , padding='same', activation = 'relu'))(conv2)
 flat = TimeDistributed(Flatten())(pool5)
 #x = TimeDistributed(Dense(100, activation = 'relu'))(flat)
 #predictions = Activation('softmax')(x)
@@ -267,14 +233,10 @@ call_lambda_softmax = Activation('softmax')(call_lambda)
 
 lambda_model = Model(inputs = [input_lambda1, input_lambda2, input_lambda3], outputs = call_lambda_softmax)
 
-from tensorflow.keras import optimizers as op
-
 if args.pretrained_name is not None:
     from tensorflow.keras.models import load_model
     lambda_model = load_model(args.pretrained_name, custom_objects = { "keras": tensorflow.keras , "args":args})
     print("loaded model",lambda_model)
-
-
 
 # models in models forget the layer name, therefore one must use the automatically given layer name and iterate throught the models by hand
 # here we can try setting the layer not trainable
@@ -335,7 +297,7 @@ lambda_model.fit_generator(keras_gen_train.generate_add_samples(), train_epoch_s
 #workers = 0 is a work around to correct the number of calls to the validation_data generator
 lambda_model.save(args.final_name+'.hdf5')
 
-
+# tools for debugging
 def get_weight_grad(model, inputs, outputs):
     """ Gets gradient of model for given inputs and outputs for all weights"""
     grads = model.optimizer.get_gradients(model.total_loss, model.trainable_weights)
@@ -354,57 +316,3 @@ def get_layer_output_grad(model, inputs, outputs, layer=-1):
     x, y, sample_weight = model._standardize_user_data(inputs, outputs)
     output_grad = f(x + y + sample_weight)
     return output_grad
-
-
-#weight_grads = get_layer_output_grad(lambda_model, [[episode_train_img[0:1]], [episode_train_img[:]], [episode_train_label[:]]],  [episode_train_label[0:1]])
-
-#weight_grads = get_layer_output_grad(siamese_net, [episode_train_img[0:1],episode_train_img[0:1]],  episode_train_label[0:1])
-
-#print(weight_grads)
-#
-#input_few = Input(shape=(84,84,3))
-#input_labels = Input(shape=(84,84,3))
-#
-#output_few = Lambda(call)([input_few,K.variable(episode_train_img), K.variable(episode_train_label)])
-#
-#model_few = Model(inputs = [input_few, input_labels], outputs = output_few)
-#
-#print('test few', K.eval(model_few([K.variable(episode_train_img[0:0+1]),K.variable(episode_train_label)])))
-    
-##sum_few = np.zeros(episode_train_label[0:1].shape)
-#input_few = Input(shape=(84,84,3))
-#for i in range(0,2):
-#    a = siamese_net([input_few, K.variable(episode_train_img[i:i+1])])
-#    if i == 0:
-#        sum_few = K.variable(episode_train_label[i:i+1]) * a
-#    else:
-#        sum_few += K.variable(episode_train_label[i:i+1]) * a
-#    print(i)
-#sum_few_softmax = Activation('softmax')(sum_few)
-#full_few_shot = Model(inputs = input_few, outputs = sum_few_softmax)
-#
-##print('net_ready')
-##aa = K.variable(episode_train_img[0:1])
-##a = full_few_shot(aa)
-##print('net ready', K.eval(a))
-##
-#from tensorflow.keras.optimizers import  Adam
-#full_few_shot.compile(loss='categorical_crossentropy', optimizer=Adam(), metrics=['categorical_accuracy'])
-#
-#print(full_few_shot.summary())
-#
-#
-#print("eval", episode_train_img[0:1])
-#sum_a = np.zeros(episode_train_label[0:1].shape)
-#for i in range(0,train_epoch_size):
-#    a = siamese_net([K.variable(episode_train_img[0:1]), K.variable(episode_train_img[i:i+1])])
-#    sum_a += K.variable(episode_train_label[i:i+1]) * a
-#    print('aaaaa',i,K.eval(a), episode_train_label[0:1], episode_train_label[i:i+1])
-#
-#
-##print('suma',episode_train_label[0:1], K.eval(K.softmax(sum_a)), K.eval(full_few_shot(K.variable(episode_train_img[0:1]))))
-#
-#checkpointer = ModelCheckpoint(filepath='checkpoints/model-{epoch:02d}.hdf5', verbose=1)
-#
-#history = full_few_shot.fit_generator(gen_train.generate(), train_epoch_size, 100, validation_data=gen_test, validation_steps=test_epoch_size) 
-#
