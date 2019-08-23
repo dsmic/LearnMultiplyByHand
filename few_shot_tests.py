@@ -32,6 +32,8 @@ parser.add_argument('--train_indep_and_dependent', dest='train_indep_and_depende
 parser.add_argument('--tensorboard_log_dir', dest='tensorboard_log_dir',  type=str, default='./logs')
 parser.add_argument('--enable_only_layers_of_list', dest='enable_only_layers_of_list',  type=str, default=None)
 parser.add_argument('--episode_test_sample_num', dest='episode_test_sample_num',  type=int, default=15)
+parser.add_argument('--biaslayer1', dest='biaslayer1', action='store_true')
+parser.add_argument('--biaslayer2', dest='biaslayer2', action='store_true')
 
 args = parser.parse_args()
 
@@ -220,11 +222,11 @@ print(model_img.summary(line_length=180, positions = [.33, .55, .67, 1.]))
 input1 = Input(shape=(None,84,84,3))
 input2 = Input(shape=(None,84,84,3)) #, tensor = K.variable(episode_train_img[0:0]))
 
-input2b = BiasLayer(shots * cathegories, mult_bias = 0)(input2)
+input2b = BiasLayer(shots * cathegories, mult_bias = float(args.biaslayer1))(input2)
 encoded_l = model_img(input1)
 encoded_r = model_img(input2b)
 
-encoded_rb = BiasLayer(shots * cathegories, mult_bias = 0)(encoded_r)
+encoded_rb = BiasLayer(shots * cathegories, mult_bias = float(args.biaslayer1))(encoded_r)
 # Add a customized layer to compute the absolute difference between the encodings
 L1_layer = Lambda(lambda tensors:K.abs(tensors[0] - tensors[1]))
 L1_distance = L1_layer([encoded_l, encoded_rb])
