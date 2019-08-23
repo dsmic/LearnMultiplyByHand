@@ -177,7 +177,7 @@ class BiasLayer(Layer):
     def build(self, input_shape):
         # Create a trainable weight variable for this layer.
         self.bias = self.add_weight(name='bias',
-                                      shape=(self.proto_num,input_shape[2], input_shape[3], input_shape[4]),
+                                      shape=(self.proto_num) + input_shape[2:],
                                       initializer='zeros',
                                       trainable=True)
         super(BiasLayer, self).build(input_shape)  # Be sure to call this at the end
@@ -223,10 +223,11 @@ input2 = Input(shape=(None,84,84,3)) #, tensor = K.variable(episode_train_img[0:
 input2b = BiasLayer(shots * cathegories, mult_bias = 0)(input2)
 encoded_l = model_img(input1)
 encoded_r = model_img(input2b)
-    
+
+encoded_rb = BiasLayer(shots * cathegories, mult_bias = 0)(encoded_r)
 # Add a customized layer to compute the absolute difference between the encodings
 L1_layer = Lambda(lambda tensors:K.abs(tensors[0] - tensors[1]))
-L1_distance = L1_layer([encoded_l, encoded_r])
+L1_distance = L1_layer([encoded_l, encoded_rb])
     
 # Add a dense layer with a sigmoid unit to generate the similarity score
 prediction = Dense(1)(L1_distance)
