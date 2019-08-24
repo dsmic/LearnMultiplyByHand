@@ -30,11 +30,13 @@ parser.add_argument('--shuffle_images', dest='shuffle_images', action='store_tru
 parser.add_argument('--enable_idx_increase', dest='enable_idx_increase', action='store_true')
 parser.add_argument('--use_independent_base', dest='use_independent_base', action='store_true')
 parser.add_argument('--train_indep_and_dependent', dest='train_indep_and_dependent', action='store_true')
-parser.add_argument('--tensorboard_log_dir', dest='tensorboard_log_dir',  type=str, default='./logs')
+parser.add_argument('--tensorboard_logdir', dest='tensorboard_logdir',  type=str, default='./logs')
 parser.add_argument('--enable_only_layers_of_list', dest='enable_only_layers_of_list',  type=str, default=None)
 parser.add_argument('--episode_test_sample_num', dest='episode_test_sample_num',  type=int, default=15)
 parser.add_argument('--biaslayer1', dest='biaslayer1', action='store_true')
 parser.add_argument('--biaslayer2', dest='biaslayer2', action='store_true')
+parser.add_argument('--shots', dest='shots',  type=int, default=5)
+parser.add_argument('--debug', dest='debug', action='store_true')
 
 args = parser.parse_args()
 
@@ -42,6 +44,14 @@ args = parser.parse_args()
 #os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 ###########################################
 
+def debug(what):
+    if args.debug:
+        return what
+    else:
+        return ''
+def printdeb(*what):
+    if args.debug:
+        print(*what)
 
 class OurMiniImageNetDataLoader(MiniImageNetDataLoader):
     # adding functions we need
@@ -63,12 +73,12 @@ class OurMiniImageNetDataLoader(MiniImageNetDataLoader):
 
 
 cathegories = 5
-shots = 5
+shots = args.shots
 dataloader = OurMiniImageNetDataLoader(shot_num=shots * 2, way_num=cathegories, episode_test_sample_num=args.episode_test_sample_num, shuffle_images = args.shuffle_images) #twice shot_num is because one might be uses as the base for the samples
 
 dataloader.generate_data_list(phase=args.dataset)
 
-print('mode is',args.dataset)
+printdeb('mode is',args.dataset)
 dataloader.load_list(args.dataset)
 
 #print('train',dataloader.train_filenames)
@@ -183,7 +193,7 @@ class BiasLayer(Layer):
         # Create a trainable weight variable for this layer.
         self.bias = self.add_weight(name='bias',
                                       shape=(self.proto_num) + input_shape[2:],
-                                      initializer='zeros',
+                                      initializer='uniform',
                                       trainable=True)
         if self.do_bias:
             preset = 'ones'
@@ -208,10 +218,6 @@ class BiasLayer(Layer):
     def call(self, x):
         #return tf.expand_dims(self.bias, axis = 0)# let
         return self.bias * self.bias_enable       + x * (1-self.bias_enable)
-        if self.do_bias:
-            return self.bias        + x * 0
-        else:
-            return self.bias * 0    + x
 
     def compute_output_shape(self, input_shape):
         return input_shape
@@ -220,7 +226,7 @@ class BiasLayer(Layer):
         return {'proto_num': self.proto_num, 'do_bias' : self.do_bias,'bias_num' : self.bias_num}
 
 inputs = Input(shape=(None,84,84,3))
-print('the shape', inputs.shape)
+printdeb('the shape', inputs.shape)
 conv1 = TimeDistributed(Conv2D(args.hidden_size, 3, padding='same', activation = 'relu'))(inputs)
 pool1 = TimeDistributed(MaxPooling2D(pool_size = 2))(conv1)
 conv2 = TimeDistributed(Conv2D(args.hidden_size, 3, padding='same', activation = 'relu'))(pool1)
@@ -278,7 +284,7 @@ def call(x):
     #k1 = K.expand_dims(tf.reshape(k0, (-1,1)), axis=0)
     k2 = k0 * l2
     r = K.sum(k2, axis = 1)
-    print('l2',l2.shape,'k0',k0.shape, 'k2',k2.shape, 'r',r.shape)
+    printdeb('l2',l2.shape,'k0',k0.shape, 'k2',k2.shape, 'r',r.shape)
     return r
 #def call_shape(input_shape):
 #    return (5,)
@@ -317,13 +323,13 @@ for l in range(len(lambda_model_layers)):
     if args.enable_only_layers_of_list is not None:
         l2.trainable = False
     if isinstance(l2,BiasLayer):
-        print('pre ',l2.bias_num, l2.do_bias,args.biaslayer1,args.biaslayer2)
+        printdeb('pre ',l2.bias_num, l2.do_bias,args.biaslayer1,args.biaslayer2)
         if (l2.bias_num == 1):
             l2.set_bias(args.biaslayer1)
         if (l2.bias_num == 2):
             l2.set_bias(args.biaslayer2)
             #print('get_weights = ', l2.get_weights())
-        print('past',l2.bias_num, l2.do_bias,args.biaslayer1,args.biaslayer2) #, l2.bias)
+        printdeb('past',l2.bias_num, l2.do_bias,args.biaslayer1,args.biaslayer2) #, l2.bias)
 
     print('{:10} {:10} {:20} {:10}  {:10}'.format(l, p,l2.name, ("fixed", "trainable")[l2.trainable], l2.count_params()))
 
@@ -355,7 +361,7 @@ print(lambda_model.summary(line_length=180, positions = [.33, .55, .67, 1.]))
 
 
 checkpointer = ModelCheckpoint(filepath='checkpoints/model-{epoch:02d}.hdf5', verbose=1)
-tensorboard = TensorBoard(log_dir = args.tensorboard_log_dir)
+tensorboard = TensorBoard(log_dir = args.tensorboard_logdir)
 lambda_model.fit_generator(keras_gen_train.generate_add_samples(), train_epoch_size, args.epochs, 
                            validation_data=keras_gen_train.generate_add_samples('test'), validation_steps=test_epoch_size, callbacks = [tensorboard], workers = 0) 
 #workers = 0 is a work around to correct the number of calls to the validation_data generator
@@ -368,14 +374,14 @@ for l in range(len(lambda_model_layers)):
     if args.enable_only_layers_of_list is not None:
         l2.trainable = False
     if isinstance(l2,BiasLayer):
-        print('pre ',l2.bias_num, l2.do_bias,args.biaslayer1,args.biaslayer2)
+        printdeb('pre ',l2.bias_num, l2.do_bias,args.biaslayer1,args.biaslayer2)
         if (l2.bias_num == 1):
             l2.do_bias = l2.trainable = args.biaslayer1
         if (l2.bias_num == 2):
             l2.do_bias = l2.trainable = args.biaslayer2
         print('past',l2.bias_num, l2.do_bias,args.biaslayer1,args.biaslayer2, l2.bias)
 
-    print('{:10} {:10} {:20} {:10}  {:10}'.format(l, p,l2.name, ("fixed", "trainable")[l2.trainable], l2.count_params()))
+    print('{:10} {:10} {:20} {:10}  {:10}'.format(l, p,l2.name, ("fixed", "trainable")[l2.trainable], l2.count_params()), debug(l2.get_weights()))
 
 for l in range(len(lambda_model_layers)):
     lambda_model_layers[l].trainable = True
