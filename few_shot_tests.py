@@ -446,7 +446,7 @@ print(lambda_model.summary(line_length=180, positions = [.33, .55, .67, 1.]))
 #print('test lambda', K.eval(test_lambda))
 
 
-print('vor fitting', lambda_model_layers[17].get_weights()[0])
+#print('vor fitting', lambda_model_layers[17].get_weights()[0])
 
 checkpointer = ModelCheckpoint(filepath='checkpoints/model-{epoch:02d}.hdf5', verbose=1)
 tensorboard = TensorBoard(log_dir = args.tensorboard_logdir)
@@ -494,12 +494,19 @@ calc_out = functor([K.expand_dims(K.variable(keras_gen_train.n_b_i),axis=0)])
 
 print('calc_out',calc_out[0])
 
-print('vor', lambda_model_layers[17].get_weights()[0])
+for l in lambda_model_layers:
+        if isinstance(l,BiasLayer) and l.bias_num == 2:
+            print('vor', l.get_weights()[0])
 
 if args.set_model_img_to_weights:
     print('\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-    lambda_model_layers[17].set_weights([calc_out[0][0],np.array([0])])
-    print('nach', lambda_model_layers[17].get_weights()[0])
+    for l in lambda_model_layers:
+        if isinstance(l,BiasLayer) and l.bias_num == 2:
+            print("biaslayer2 found",l,l.bias_num)
+            l.set_weights([calc_out[0][0],np.array([0])])
+            print('nach l', l.get_weights()[0])
+    #print('nach [17]', lambda_model_layers[17].get_weights()[0])
+
     print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n')
 
 
