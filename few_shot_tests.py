@@ -138,7 +138,10 @@ class KerasBatchGenerator(object):
                         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
                         print("all data used, starting from beginning")
                         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-                        
+                self.e_t_i = episode_train_img
+                self.n_b_i = network_base_img
+                self.n_b_l = network_base_label
+                self.e_t_l = episode_train_label
                 for i in range(train_epoch_size):
                     yield [[episode_train_img[i:i+1]], [network_base_img], [network_base_label]], episode_train_label[i:i+1]
             else:
@@ -180,6 +183,27 @@ else:
         print(e)
 
 
+class FindModel(Model):
+    #allows isinstance to find exactly this model as a submodel of other models
+    pass
+
+def get_FindModel(model):
+    found = None
+    for l in model.layers:
+        if isinstance(l,FindModel):
+            if found is not None:
+                raise Exception('two FindModels present')
+            else:
+                found = l
+        if isinstance(l,Model):
+            s = get_FindModel(l)
+            if s is not None:
+                if found is not None:
+                    raise Exception('two FindModels present')
+                else:
+                    found = s
+    return found
+
 class BiasLayer(Layer):
 
     def __init__(self, proto_num, do_bias, bias_num, **kwargs):
@@ -203,6 +227,7 @@ class BiasLayer(Layer):
                                       shape=(1),
                                       initializer=preset,
                                       trainable=False)
+        #print('bias_enable',self.bias_enable, K.eval(self.bias_enable[0]),'bias',self.bias,'weights')
         super(BiasLayer, self).build(input_shape)  # Be sure to call this at the end
 
     def set_bias(self, do_bias):
@@ -216,7 +241,6 @@ class BiasLayer(Layer):
 
 
     def call(self, x):
-        #return tf.expand_dims(self.bias, axis = 0)# let
         return self.bias * self.bias_enable       + x * (1-self.bias_enable)
 
     def compute_output_shape(self, input_shape):
@@ -242,7 +266,7 @@ flat = TimeDistributed(Flatten())(pool5)
 #x = TimeDistributed(Dense(100, activation = 'relu'))(flat)
 #predictions = Activation('softmax')(x)
 
-model_img = Model(inputs=inputs, outputs=flat)
+model_img = FindModel(inputs=inputs, outputs=flat)
 
 #model_img.compile(loss='categorical_crossentropy', optimizer='Adam', metrics=['categorical_accuracy'])
 
@@ -365,6 +389,50 @@ tensorboard = TensorBoard(log_dir = args.tensorboard_logdir)
 lambda_model.fit_generator(keras_gen_train.generate_add_samples(), train_epoch_size, args.epochs, 
                            validation_data=keras_gen_train.generate_add_samples('test'), validation_steps=test_epoch_size, callbacks = [tensorboard], workers = 0) 
 #workers = 0 is a work around to correct the number of calls to the validation_data generator
+
+#test_lambda = lambda_model([K.expand_dims(K.variable(base_train_img[0:0+1]),axis=0),K.expand_dims(K.variable(base_train_img), axis=0), K.expand_dims(K.variable(base_train_label), axis=0)])
+i=0
+test_lambda = lambda_model([K.expand_dims(K.variable(keras_gen_train.e_t_i[i:i+1]),axis=0), K.expand_dims(K.variable(keras_gen_train.n_b_i),axis=0),
+                            K.expand_dims(K.variable(keras_gen_train.n_b_l),axis=0)], K.expand_dims(K.variable(keras_gen_train.e_t_l[i:i+1]),axis=0))
+
+print(test_lambda)
+in_test = lambda_model.input
+out_test = lambda_model_layers[22].output
+functor = K.function([in_test], [out_test])
+print(functor([K.expand_dims(K.variable(keras_gen_train.e_t_i[i:i+1]),axis=0), K.expand_dims(K.variable(keras_gen_train.n_b_i),axis=0),
+                            K.expand_dims(K.variable(keras_gen_train.n_b_l),axis=0)]))
+
+
+
+find_conv_model = None
+
+
+def print_FindModels(model):
+    found = 0
+    for l in model.layers:
+        if isinstance(l,FindModel):
+            print('FoundModel', l)
+            found +=1
+        if isinstance(l,Model):
+            found += print_FindModels(l)
+    return found
+
+#check if allways one
+print('number of models found', print_FindModels(lambda_model))
+
+find_conv_model = get_FindModel(lambda_model)
+
+in_test = find_conv_model.input
+out_test = find_conv_model.output
+functor = K.function([in_test], [out_test])
+
+calc_out = functor([K.expand_dims(K.expand_dims(K.variable(keras_gen_train.n_b_i),axis=0),axis=0)])
+
+print(calc_out)
+
+
+
+
 for l in range(len(lambda_model_layers)):
     l2=lambda_model_layers[l]
     p='normal'
