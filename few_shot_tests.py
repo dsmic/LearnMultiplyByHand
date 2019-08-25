@@ -37,6 +37,7 @@ parser.add_argument('--biaslayer1', dest='biaslayer1', action='store_true')
 parser.add_argument('--biaslayer2', dest='biaslayer2', action='store_true')
 parser.add_argument('--shots', dest='shots',  type=int, default=5)
 parser.add_argument('--debug', dest='debug', action='store_true')
+parser.add_argument('--set_model_img_to_weights', dest='set_model_img_to_weights', action='store_true')
 
 args = parser.parse_args()
 
@@ -110,7 +111,7 @@ class KerasBatchGenerator(object):
         self.idx = 0
         while True:
             batch_train_img, batch_train_label, episode_test_img, episode_test_label = \
-                dataloader.get_batch(phase=args.dataset, idx=self.idx)
+                dataloader.get_batch(phase=args.dataset, idx=self.idx, dont_shuffle_batch = (self.idx==0))
 
             # this depends on what we are trying to train.
             # care must be taken, that with a different dataset the labels have a different meaning. Thus if we use a new dataset, we must 
@@ -227,7 +228,7 @@ class BiasLayer(Layer):
                                       shape=(1),
                                       initializer=preset,
                                       trainable=False)
-        #print('bias_enable',self.bias_enable, K.eval(self.bias_enable[0]),'bias',self.bias,'weights')
+        print('bias_enable',self.bias_enable, K.eval(self.bias_enable[0]),'bias',self.bias,'weights')
         super(BiasLayer, self).build(input_shape)  # Be sure to call this at the end
 
     def set_bias(self, do_bias):
@@ -320,7 +321,7 @@ lambda_model = Model(inputs = [input_lambda1, input_lambda2, input_lambda3], out
 
 if args.pretrained_name is not None:
     from tensorflow.keras.models import load_model
-    lambda_model = load_model(args.pretrained_name, custom_objects = { "keras": tensorflow.keras , "args":args, "BiasLayer": BiasLayer})
+    lambda_model = load_model(args.pretrained_name, custom_objects = { "keras": tensorflow.keras , "args":args, "BiasLayer": BiasLayer, "FindModel": FindModel})
     print("loaded model",lambda_model)
 
 # models in models forget the layer name, therefore one must use the automatically given layer name and iterate throught the models by hand
@@ -383,6 +384,7 @@ print(lambda_model.summary(line_length=180, positions = [.33, .55, .67, 1.]))
 #print('test lambda', K.eval(test_lambda))
 
 
+print('vor fitting', lambda_model_layers[17].get_weights()[0])
 
 checkpointer = ModelCheckpoint(filepath='checkpoints/model-{epoch:02d}.hdf5', verbose=1)
 tensorboard = TensorBoard(log_dir = args.tensorboard_logdir)
@@ -426,9 +428,18 @@ in_test = find_conv_model.input
 out_test = find_conv_model.output
 functor = K.function([in_test], [out_test])
 
-calc_out = functor([K.expand_dims(K.expand_dims(K.variable(keras_gen_train.n_b_i),axis=0),axis=0)])
+calc_out = functor([K.expand_dims(K.variable(keras_gen_train.n_b_i),axis=0)])
 
-print(calc_out)
+print('calc_out',calc_out[0])
+
+print('vor', lambda_model_layers[17].get_weights()[0])
+
+if args.set_model_img_to_weights:
+    print('\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+    lambda_model_layers[17].set_weights([calc_out[0][0],np.array([0])])
+    print('nach', lambda_model_layers[17].get_weights()[0])
+    print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n')
+
 
 
 
@@ -447,7 +458,7 @@ for l in range(len(lambda_model_layers)):
             l2.do_bias = l2.trainable = args.biaslayer1
         if (l2.bias_num == 2):
             l2.do_bias = l2.trainable = args.biaslayer2
-        print('past',l2.bias_num, l2.do_bias,args.biaslayer1,args.biaslayer2, l2.bias)
+        print('past',l2.bias_num, l2.do_bias,args.biaslayer1,args.biaslayer2, debug(l2.bias))
 
     print('{:10} {:10} {:20} {:10}  {:10}'.format(l, p,l2.name, ("fixed", "trainable")[l2.trainable], l2.count_params()), debug(l2.get_weights()))
 

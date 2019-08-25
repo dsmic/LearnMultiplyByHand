@@ -141,12 +141,13 @@ class MiniImageNetDataLoader(object):
         else:
             print('Please select vaild phase')
 
-    def process_batch(self, input_filename_list, input_label_list, batch_sample_num, reshape_with_one=True):
+    def process_batch(self, input_filename_list, input_label_list, batch_sample_num, reshape_with_one=True, dont_shuffle_batch = False):
         new_path_list = []
         new_label_list = []
         for k in range(batch_sample_num):
             class_idxs = list(range(0, self.way_num))
-            random.shuffle(class_idxs)
+            if not dont_shuffle_batch:
+                random.shuffle(class_idxs)
             for class_idx in class_idxs:
                 true_idx = class_idx*batch_sample_num + k
                 new_path_list.append(input_filename_list[true_idx])
@@ -174,7 +175,7 @@ class MiniImageNetDataLoader(object):
             out[idx, inp[idx]] = 1
         return out
 
-    def get_batch(self, phase='train', idx=0):
+    def get_batch(self, phase='train', idx=0, dont_shuffle_batch = False):
         if phase=='train':
             all_filenames = self.train_filenames
             labels = self.train_labels 
@@ -204,7 +205,7 @@ class MiniImageNetDataLoader(object):
             this_task_te_filenames += this_class_filenames[epitr_sample_num:]
             this_task_te_labels += this_class_label[epitr_sample_num:]
 
-        this_inputa, this_labela = self.process_batch(this_task_tr_filenames, this_task_tr_labels, epitr_sample_num, reshape_with_one=False)
-        this_inputb, this_labelb = self.process_batch(this_task_te_filenames, this_task_te_labels, epite_sample_num, reshape_with_one=False)
+        this_inputa, this_labela = self.process_batch(this_task_tr_filenames, this_task_tr_labels, epitr_sample_num, reshape_with_one=False, dont_shuffle_batch = dont_shuffle_batch)
+        this_inputb, this_labelb = self.process_batch(this_task_te_filenames, this_task_te_labels, epite_sample_num, reshape_with_one=False, dont_shuffle_batch = dont_shuffle_batch)
 
         return this_inputa, this_labela, this_inputb, this_labelb
