@@ -281,7 +281,7 @@ class BiasLayer(Layer):
                                       shape=(1),
                                       initializer=preset,
                                       trainable=False)
-        print('bias_enable',self.bias_enable, K.eval(self.bias_enable[0]),'bias',self.bias,'weights')
+        print('bias_enable',self.bias_enable, K.eval(self.bias_enable[0]),'bias',debug(self.bias))
         super(BiasLayer, self).build(input_shape)  # Be sure to call this at the end
 
     def set_bias(self, do_bias):
