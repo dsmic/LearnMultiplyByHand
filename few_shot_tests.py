@@ -60,16 +60,12 @@ class OurMiniImageNetDataLoader(MiniImageNetDataLoader):
     def idx_to_big(self, phase, idx):
         if phase=='train':
             all_filenames = self.train_filenames
-#            labels = self.train_labels 
         elif phase=='val':
             all_filenames = self.val_filenames
-#            labels = self.val_labels 
         elif phase=='test':
             all_filenames = self.test_filenames
-#            labels = self.test_labels
         else:
             print('Please select vaild phase')
-
         one_episode_sample_num = self.num_samples_per_class*self.way_num
         return ((idx+1)*one_episode_sample_num >= len(all_filenames))
 
@@ -144,11 +140,6 @@ dataloader.generate_data_list(phase=args.dataset)
 printdeb('mode is',args.dataset)
 dataloader.load_list(args.dataset)
 
-#print('train',dataloader.train_filenames)
-#print('val',dataloader.val_filenames)
-#print('test',dataloader.test_filenames)
-
-
 base_train_img, base_train_label, base_test_img, base_test_label = \
         dataloader.get_batch(phase=args.dataset, idx=0) 
 
@@ -160,14 +151,14 @@ test_epoch_size = base_test_img.shape[0]
 print("epoch training size:", train_epoch_size, base_train_label.shape[0], "epoch testing size", test_epoch_size)
 
 class KerasBatchGenerator(object):
-    def generate(self, phase='train'):
-        while True:
-            if phase == 'train':
-                for i in range(train_epoch_size):
-                    yield base_train_img[i:i+1], base_train_label[i:i+1]
-            else:
-                for i in range(test_epoch_size):
-                    yield base_test_img[i:i+1], base_test_label[i:i+1]
+    # def generate(self, phase='train'):
+    #     while True:
+    #         if phase == 'train':
+    #             for i in range(train_epoch_size):
+    #                 yield base_train_img[i:i+1], base_train_label[i:i+1]
+    #         else:
+    #             for i in range(test_epoch_size):
+    #                 yield base_test_img[i:i+1], base_test_label[i:i+1]
 
     def generate_add_samples(self, phase = 'train'):
         self.idx = 0
@@ -212,18 +203,18 @@ class KerasBatchGenerator(object):
                     yield [[episode_test_img[i:i+1]], [network_base_img], [network_base_label]], episode_test_label[i:i+1]
 
 keras_gen_train = KerasBatchGenerator()
-gen_train = keras_gen_train.generate()
+#gen_train = keras_gen_train.generate()
 
-gen_test = KerasBatchGenerator().generate('test')
+#gen_test = KerasBatchGenerator().generate('test')
 
-print('train data check')
-for _ in range(3):
-    img, l = next(gen_train)
-    print(img.shape,l.shape)
-print('test data check')    
-for _ in range(3):
-    img, l = next(gen_test)
-    print(img.shape,l.shape)
+# print('train data check')
+# for _ in range(3):
+#     img, l = next(gen_train)
+#     print(img.shape,l.shape)
+# print('test data check')    
+# for _ in range(3):
+#     img, l = next(gen_test)
+#     print(img.shape,l.shape)
 
 if tf.__version__ < "2.0":
     from tensorflow.keras.backend import set_session
@@ -302,7 +293,6 @@ class BiasLayer(Layer):
             self.set_weights([was_weights[0],np.array([0])])
             self.trainable = False
 
-
     def call(self, x):
         return self.bias * self.bias_enable       + x * (1-self.bias_enable)
 
@@ -311,6 +301,8 @@ class BiasLayer(Layer):
 
     def get_config(self):
         return {'proto_num': self.proto_num, 'do_bias' : self.do_bias,'bias_num' : self.bias_num}
+
+# Network definition starts here
 
 inputs = Input(shape=(None,84,84,3))
 printdeb('the shape', inputs.shape)
@@ -334,8 +326,6 @@ model_img = FindModel(inputs=inputs, outputs=flat)
 #model_img.compile(loss='categorical_crossentropy', optimizer='Adam', metrics=['categorical_accuracy'])
 
 print(model_img.summary(line_length=180, positions = [.33, .55, .67, 1.]))
-
-
 
 input1 = Input(shape=(None,84,84,3))
 input2 = Input(shape=(None,84,84,3)) #, tensor = K.variable(episode_train_img[0:0]))
@@ -367,14 +357,10 @@ s_res = siamese_net([input_lambda1, input_lambda2])
 
 def call(x):
     [k0,l2] = x
-    #k0 = siamese_net([x1,x2])
-    #k1 = K.expand_dims(tf.reshape(k0, (-1,1)), axis=0)
     k2 = k0 * l2
     r = K.sum(k2, axis = 1)
     printdeb('l2',l2.shape,'k0',k0.shape, 'k2',k2.shape, 'r',r.shape)
     return r
-#def call_shape(input_shape):
-#    return (5,)
 
 call_lambda = Lambda(call)([s_res, input_lambda3])
 call_lambda_softmax = Activation('softmax')(call_lambda)
@@ -437,14 +423,6 @@ if args.enable_only_layers_of_list is not None:
 #after loading to set learning rate
 lambda_model.compile(loss='categorical_crossentropy', optimizer=op.SGD(args.lr), metrics=['categorical_accuracy'])
 print(lambda_model.summary(line_length=180, positions = [.33, .55, .67, 1.]))
-#lambda_model.get_layer("dense_1").trainable = False
-        
-# testing with additional batch axis ?!
-#i=1
-#test_lambda = lambda_model([K.expand_dims(K.variable(base_train_img[0:0+1]),axis=0),K.expand_dims(K.variable(base_train_img), axis=0), K.expand_dims(K.variable(base_train_label), axis=0)])
-#        
-#print('test lambda', K.eval(test_lambda))
-
 
 #print('vor fitting', lambda_model_layers[17].get_weights()[0])
 
@@ -466,10 +444,7 @@ functor = K.function([in_test], [out_test])
 print(functor([K.expand_dims(K.variable(keras_gen_train.e_t_i[i:i+1]),axis=0), K.expand_dims(K.variable(keras_gen_train.n_b_i),axis=0),
                             K.expand_dims(K.variable(keras_gen_train.n_b_l),axis=0)]))
 
-
-
 find_conv_model = None
-
 
 def print_FindModels(model):
     found = 0
@@ -482,7 +457,7 @@ def print_FindModels(model):
     return found
 
 #check if allways one
-print('number of models found', print_FindModels(lambda_model))
+print('number of find models found', print_FindModels(lambda_model))
 
 find_conv_model = get_FindModel(lambda_model)
 
@@ -492,11 +467,11 @@ functor = K.function([in_test], [out_test])
 
 calc_out = functor([K.expand_dims(K.variable(keras_gen_train.n_b_i),axis=0)])
 
-print('calc_out',calc_out[0])
+printdeb('calc_out',calc_out[0])
 
 for l in lambda_model_layers:
         if isinstance(l,BiasLayer) and l.bias_num == 2:
-            print('vor', l.get_weights()[0])
+            printdeb('vor', l.get_weights()[0])
 
 if args.set_model_img_to_weights:
     print('\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
@@ -508,10 +483,6 @@ if args.set_model_img_to_weights:
     #print('nach [17]', lambda_model_layers[17].get_weights()[0])
 
     print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n')
-
-
-
-
 
 for l in range(len(lambda_model_layers)):
     l2=lambda_model_layers[l]
@@ -527,8 +498,7 @@ for l in range(len(lambda_model_layers)):
             l2.do_bias = l2.trainable = args.biaslayer1
         if (l2.bias_num == 2):
             l2.do_bias = l2.trainable = args.biaslayer2
-        print('past',l2.bias_num, l2.do_bias,args.biaslayer1,args.biaslayer2, debug(l2.bias))
-
+        printdeb('past',l2.bias_num, l2.do_bias,args.biaslayer1,args.biaslayer2, debug(l2.bias))
     print('{:10} {:10} {:20} {:10}  {:10}'.format(l, p,l2.name, ("fixed", "trainable")[l2.trainable], l2.count_params()), debug(l2.get_weights()))
 
 for l in range(len(lambda_model_layers)):
