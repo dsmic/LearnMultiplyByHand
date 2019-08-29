@@ -41,6 +41,8 @@ parser.add_argument('--debug', dest='debug', action='store_true')
 parser.add_argument('--set_model_img_to_weights', dest='set_model_img_to_weights', action='store_true')
 parser.add_argument('--load_weights_name', dest='load_weights_name',  type=str, default=None)
 
+parser.add_argument('--scale_gradient_layer', dest='scale_gradient_layer',  type=float, default=1.0)
+
 args = parser.parse_args()
 
 # uncomment the following to disable CuDNN support
@@ -259,6 +261,25 @@ def get_FindModel(model):
                     found = s
     return found
 
+
+@tf.custom_gradient
+def scale_gradient_layer(x):
+    def custom_grad(dy):
+        return dy * args.scale_gradient_layer
+    return tf.identity(x), custom_grad
+
+class ScaleGradientLayer(Layer):
+
+#    def __init__(self, **kwargs):
+#        super(CustomLayer, self).__init__(**kwargs)
+
+    def call(self, x):
+        return scale_gradient_layer(x)  # you don't need to explicitly define the custom gradient
+
+    def compute_output_shape(self, input_shape):
+        return input_shape
+
+
 class BiasLayer(Layer):
 
     def __init__(self, proto_num, do_bias, bias_num, **kwargs):
@@ -337,9 +358,13 @@ encoded_l = model_img(input1)
 encoded_r = model_img(input2b)
 
 encoded_rb = BiasLayer(shots * cathegories, args.biaslayer2, bias_num = 2, name = 'bias2')(encoded_r)
+if args.scale_gradient_layer != 1.0:
+    encoded_rb_scale = ScaleGradientLayer()(encoded_rb)
+else:
+    encoded_rb_scale = encoded_rb
 # Add a customized layer to compute the absolute difference between the encodings
 L1_layer = Lambda(lambda tensors:K.abs(tensors[0] - tensors[1]))
-L1_distance = L1_layer([encoded_l, encoded_rb])
+L1_distance = L1_layer([encoded_l, encoded_rb_scale])
     
 # Add a dense layer with a sigmoid unit to generate the similarity score
 prediction = Dense(1, name = 'dense_siamese')(L1_distance)
