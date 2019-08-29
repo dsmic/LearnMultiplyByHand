@@ -39,6 +39,7 @@ parser.add_argument('--biaslayer2', dest='biaslayer2', action='store_true')
 parser.add_argument('--shots', dest='shots',  type=int, default=5)
 parser.add_argument('--debug', dest='debug', action='store_true')
 parser.add_argument('--set_model_img_to_weights', dest='set_model_img_to_weights', action='store_true')
+parser.add_argument('--load_weights_name', dest='load_weights_name',  type=str, default=None)
 
 args = parser.parse_args()
 
@@ -261,6 +262,7 @@ def get_FindModel(model):
 class BiasLayer(Layer):
 
     def __init__(self, proto_num, do_bias, bias_num, **kwargs):
+        #bias num allows to identify the correct bias layer but allows to change the name for weights loading
         self.proto_num = proto_num
         self.do_bias = do_bias
         self.bias_num = bias_num
@@ -306,16 +308,16 @@ class BiasLayer(Layer):
 
 inputs = Input(shape=(None,84,84,3))
 printdeb('the shape', inputs.shape)
-conv1 = TimeDistributed(Conv2D(args.hidden_size, 3, padding='same', activation = 'relu'))(inputs)
-pool1 = TimeDistributed(MaxPooling2D(pool_size = 2))(conv1)
-conv2 = TimeDistributed(Conv2D(args.hidden_size, 3, padding='same', activation = 'relu'))(pool1)
-pool2 = TimeDistributed(MaxPooling2D(pool_size = 2))(conv2)
-conv3 = TimeDistributed(Conv2D(args.hidden_size, 3, padding='same', activation = 'relu'))(pool2)
-pool3 = TimeDistributed(MaxPooling2D(pool_size = 2))(conv3)
-conv4 = TimeDistributed(Conv2D(args.hidden_size, 3, padding='same', activation = 'relu'))(pool3)
-pool4 = TimeDistributed(MaxPooling2D(pool_size = 2))(conv4)
-conv5 = TimeDistributed(Conv2D(args.hidden_size, 3, padding='same', activation = 'relu'))(pool4)
-pool5 = TimeDistributed(MaxPooling2D(pool_size = 2))(conv5)
+conv1 = TimeDistributed(Conv2D(args.hidden_size, 3, padding='same', activation = 'relu', name = 'conv_1'))(inputs)
+pool1 = TimeDistributed(MaxPooling2D(pool_size = 2, name = 'pool_1'))(conv1)
+conv2 = TimeDistributed(Conv2D(args.hidden_size, 3, padding='same', activation = 'relu', name = 'conv_2'))(pool1)
+pool2 = TimeDistributed(MaxPooling2D(pool_size = 2, name = 'pool_2'))(conv2)
+conv3 = TimeDistributed(Conv2D(args.hidden_size, 3, padding='same', activation = 'relu', name = 'conv_3'))(pool2)
+pool3 = TimeDistributed(MaxPooling2D(pool_size = 2, name = 'pool_3'))(conv3)
+conv4 = TimeDistributed(Conv2D(args.hidden_size, 3, padding='same', activation = 'relu', name = 'conv_4'))(pool3)
+pool4 = TimeDistributed(MaxPooling2D(pool_size = 2, name = 'pool_4'))(conv4)
+conv5 = TimeDistributed(Conv2D(args.hidden_size, 3, padding='same', activation = 'relu', name = 'conv_5'))(pool4)
+pool5 = TimeDistributed(MaxPooling2D(pool_size = 2, name = 'pool_5'))(conv5)
 
 flat = TimeDistributed(Flatten())(pool5)
 #x = TimeDistributed(Dense(100, activation = 'relu'))(flat)
@@ -330,17 +332,17 @@ print(model_img.summary(line_length=180, positions = [.33, .55, .67, 1.]))
 input1 = Input(shape=(None,84,84,3))
 input2 = Input(shape=(None,84,84,3)) #, tensor = K.variable(episode_train_img[0:0]))
 
-input2b = BiasLayer(shots * cathegories, args.biaslayer1, 1)(input2)
+input2b = BiasLayer(shots * cathegories, args.biaslayer1, bias_num = 1, name = 'bias1')(input2)
 encoded_l = model_img(input1)
 encoded_r = model_img(input2b)
 
-encoded_rb = BiasLayer(shots * cathegories, args.biaslayer2, 2)(encoded_r)
+encoded_rb = BiasLayer(shots * cathegories, args.biaslayer2, bias_num = 2, name = 'bias2')(encoded_r)
 # Add a customized layer to compute the absolute difference between the encodings
 L1_layer = Lambda(lambda tensors:K.abs(tensors[0] - tensors[1]))
 L1_distance = L1_layer([encoded_l, encoded_rb])
     
 # Add a dense layer with a sigmoid unit to generate the similarity score
-prediction = Dense(1)(L1_distance)
+prediction = Dense(1, name = 'dense_siamese')(L1_distance)
     
 # Connect the inputs with the outputs
 siamese_net = Model(inputs=[input1,input2],outputs=prediction)
@@ -371,6 +373,10 @@ if args.pretrained_name is not None:
     from tensorflow.keras.models import load_model
     lambda_model = load_model(args.pretrained_name, custom_objects = { "keras": tensorflow.keras , "args":args, "BiasLayer": BiasLayer, "FindModel": FindModel})
     print("loaded model",lambda_model)
+
+if args.load_weights_name:
+    lambda_model.load_weights(args.load_weights_name, by_name=True)
+    print('weights loaded')
 
 # models in models forget the layer name, therefore one must use the automatically given layer name and iterate throught the models by hand
 # here we can try setting the layer not trainable
@@ -503,7 +509,9 @@ for l in range(len(lambda_model_layers)):
 
 for l in range(len(lambda_model_layers)):
     lambda_model_layers[l].trainable = True
+
 lambda_model.save(args.final_name+'.hdf5')
+lambda_model.save_weights(args.final_name+'-weights.hdf5')
 
 # tools for debugging
 def get_weight_grad(model, inputs, outputs):
