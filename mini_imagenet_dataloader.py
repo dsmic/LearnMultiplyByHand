@@ -15,12 +15,13 @@ from tqdm import trange
 import imageio
 
 class MiniImageNetDataLoader(object):
-    def __init__(self, shot_num, way_num, episode_test_sample_num, shuffle_images = False):
+    def __init__(self, shot_num, way_num, episode_test_sample_num, shuffle_images = False, only_one_samplefolder = False):
         self.shot_num = shot_num
         self.way_num = way_num
         self.episode_test_sample_num = episode_test_sample_num
         self.num_samples_per_class = episode_test_sample_num + shot_num
         self.shuffle_images = shuffle_images
+        self.only_one_samplefolder = only_one_samplefolder
         metatrain_folder = './processed_images/train'
         metaval_folder = './processed_images/val'
         metatest_folder = './processed_images/test'
@@ -29,7 +30,7 @@ class MiniImageNetDataLoader(object):
         if not os.path.exists(npy_dir):
             os.mkdir(npy_dir)
 
-        self.npy_base_dir = npy_dir + str(self.shot_num) + 'shot_' + str(self.way_num) + 'way_' + str(episode_test_sample_num) + 'shuffled_' + str(self.shuffle_images) + '/'
+        self.npy_base_dir = npy_dir + str(self.shot_num) + 'shot_' + str(self.way_num) + 'way_' + str(episode_test_sample_num) + 'shuffled_' + str(self.shuffle_images) + 'onesamplefolder_' + str(self.only_one_samplefolder) +'/'
         if not os.path.exists(self.npy_base_dir):
             os.mkdir(self.npy_base_dir)
 
@@ -66,9 +67,11 @@ class MiniImageNetDataLoader(object):
             if not os.path.exists(self.npy_base_dir+'/train_filenames.npy'):
                 print('Generating train filenames')
                 all_filenames = []
+                sampled_character_folders = random.sample(folders, self.way_num)
                 for _ in trange(episode_num):
-                    sampled_character_folders = random.sample(folders, self.way_num)
-                    random.shuffle(sampled_character_folders)
+                    if not self.only_one_samplefolder:
+                        sampled_character_folders = random.sample(folders, self.way_num)
+                        random.shuffle(sampled_character_folders)
                     labels_and_images = self.get_images(sampled_character_folders, range(self.way_num), nb_samples=self.num_samples_per_class, shuffle=self.shuffle_images)
                     labels = [li[0] for li in labels_and_images]
                     filenames = [li[1] for li in labels_and_images]
@@ -84,9 +87,11 @@ class MiniImageNetDataLoader(object):
             if not os.path.exists(self.npy_base_dir+'/val_filenames.npy'):
                 print('Generating val filenames')
                 all_filenames = []
+                sampled_character_folders = random.sample(folders, self.way_num)
                 for _ in trange(episode_num):
-                    sampled_character_folders = random.sample(folders, self.way_num)
-                    random.shuffle(sampled_character_folders)
+                    if not self.only_one_samplefolder:
+                        sampled_character_folders = random.sample(folders, self.way_num)
+                        random.shuffle(sampled_character_folders)
                     labels_and_images = self.get_images(sampled_character_folders, range(self.way_num), nb_samples=self.num_samples_per_class, shuffle=self.shuffle_images)
                     labels = [li[0] for li in labels_and_images]
                     filenames = [li[1] for li in labels_and_images]
@@ -102,9 +107,11 @@ class MiniImageNetDataLoader(object):
             if not os.path.exists(self.npy_base_dir+'/test_filenames.npy'):
                 print('Generating test filenames')
                 all_filenames = []
+                sampled_character_folders = random.sample(folders, self.way_num)
                 for _ in trange(episode_num):
-                    sampled_character_folders = random.sample(folders, self.way_num)
-                    random.shuffle(sampled_character_folders)
+                    if not self.only_one_samplefolder:
+                        sampled_character_folders = random.sample(folders, self.way_num)
+                        random.shuffle(sampled_character_folders)
                     labels_and_images = self.get_images(sampled_character_folders, range(self.way_num), nb_samples=self.num_samples_per_class, shuffle=self.shuffle_images)
                     labels = [li[0] for li in labels_and_images]
                     filenames = [li[1] for li in labels_and_images]

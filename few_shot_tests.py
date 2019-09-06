@@ -40,12 +40,16 @@ parser.add_argument('--shots', dest='shots',  type=int, default=5)
 parser.add_argument('--debug', dest='debug', action='store_true')
 parser.add_argument('--set_model_img_to_weights', dest='set_model_img_to_weights', action='store_true')
 parser.add_argument('--load_weights_name', dest='load_weights_name',  type=str, default=None)
-
 parser.add_argument('--scale_gradient_layer', dest='scale_gradient_layer',  type=float, default=1.0)
-
+parser.add_argument('--increase_idx_every', dest='increase_idx_every',  type=int, default=1)
+parser.add_argument('--dont_shuffle_batch', dest='dont_shuffle_batch', action='store_true')
+parser.add_argument('--cathegories', dest='cathegories',  type=int, default=5)
+parser.add_argument('--only_one_samplefolder', dest='only_one_samplefolder', action='store_true')
+parser.add_argument('--load_subnet', dest='load_subnet', action='store_true')
 args = parser.parse_args()
 
 # uncomment the following to disable CuDNN support
+#import os
 #os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 ###########################################
 
@@ -134,9 +138,9 @@ class OurMiniImageNetDataLoader(MiniImageNetDataLoader):
         return this_inputa, this_labela, this_inputb, this_labelb
 
 
-cathegories = 5
+cathegories = args.cathegories
 shots = args.shots
-dataloader = OurMiniImageNetDataLoader(shot_num=shots * 2, way_num=cathegories, episode_test_sample_num=args.episode_test_sample_num, shuffle_images = args.shuffle_images) #twice shot_num is because one might be uses as the base for the samples
+dataloader = OurMiniImageNetDataLoader(shot_num=shots * 2, way_num=cathegories, episode_test_sample_num=args.episode_test_sample_num, shuffle_images = args.shuffle_images, only_one_samplefolder = args.only_one_samplefolder) #twice shot_num is because one might be uses as the base for the samples
 
 dataloader.generate_data_list(phase=args.dataset)
 
@@ -164,10 +168,11 @@ class KerasBatchGenerator(object):
     #                 yield base_test_img[i:i+1], base_test_label[i:i+1]
 
     def generate_add_samples(self, phase = 'train'):
+        self.increase_every_counter = 1
         self.idx = 0
         while True:
             batch_train_img, batch_train_label, episode_test_img, episode_test_label = \
-                dataloader.get_batch(phase=args.dataset, idx=self.idx, dont_shuffle_batch = (self.idx==0))
+                dataloader.get_batch(phase=args.dataset, idx=self.idx, dont_shuffle_batch = args.dont_shuffle_batch)
 
             # this depends on what we are trying to train.
             # care must be taken, that with a different dataset the labels have a different meaning. Thus if we use a new dataset, we must 
@@ -189,7 +194,12 @@ class KerasBatchGenerator(object):
                 episode_train_label = batch_train_label
             if phase == 'train':
                 if args.enable_idx_increase:
-                    self.idx += 1 # only train phase allowed to change
+                    if self.increase_every_counter >= args.increase_idx_every:
+                        self.increase_every_counter = 1
+                        self.idx += 1 # only train phase allowed to change
+                        #print('newidx',self.idx)
+                    else:
+                        self.increase_every_counter += 1
                     if dataloader.idx_to_big(args.dataset, self.idx):
                         self.idx=0
                         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
@@ -353,11 +363,11 @@ print(model_img.summary(line_length=180, positions = [.33, .55, .67, 1.]))
 input1 = Input(shape=(None,84,84,3))
 input2 = Input(shape=(None,84,84,3)) #, tensor = K.variable(episode_train_img[0:0]))
 
-input2b = BiasLayer(shots * cathegories, args.biaslayer1, bias_num = 1, name = 'bias1')(input2)
+input2b = BiasLayer(shots * cathegories, args.biaslayer1, bias_num = 1, name = 'bias1'+str(cathegories)+'_'+str(args.shots)+'t')(input2)
 encoded_l = model_img(input1)
 encoded_r = model_img(input2b)
 
-encoded_rb = BiasLayer(shots * cathegories, args.biaslayer2, bias_num = 2, name = 'bias2')(encoded_r)
+encoded_rb = BiasLayer(shots * cathegories, args.biaslayer2, bias_num = 2, name = 'bias2_'+str(cathegories)+'_'+str(args.shots)+'t')(encoded_r)
 if args.scale_gradient_layer != 1.0:
     encoded_rb_scale = ScaleGradientLayer()(encoded_rb)
 else:
@@ -370,7 +380,11 @@ L1_distance = L1_layer([encoded_l, encoded_rb_scale])
 prediction = Dense(1, name = 'dense_siamese')(L1_distance)
     
 # Connect the inputs with the outputs
-siamese_net = Model(inputs=[input1,input2],outputs=prediction)
+if args.load_subnet:
+    submodel_name = "model_changed"
+else:
+    submodel_name ="model"
+siamese_net = Model(inputs=[input1,input2],outputs=prediction, name=submodel_name)
 
 #siamese_net.compile(loss='categorical_crossentropy', optimizer='Adam', metrics=['categorical_accuracy'])
 print(siamese_net.summary(line_length=180, positions = [.33, .55, .67, 1.]))
@@ -401,6 +415,8 @@ if args.pretrained_name is not None:
 
 if args.load_weights_name:
     lambda_model.load_weights(args.load_weights_name, by_name=True)
+    if args.load_subnet:
+        lambda_model.layers[2].load_weights(args.load_weights_name+'_subnet.hdf5', by_name=True)
     print('weights loaded')
 
 # models in models forget the layer name, therefore one must use the automatically given layer name and iterate throught the models by hand
@@ -537,6 +553,7 @@ for l in range(len(lambda_model_layers)):
 
 lambda_model.save(args.final_name+'.hdf5')
 lambda_model.save_weights(args.final_name+'-weights.hdf5')
+lambda_model.layers[2].save_weights(args.final_name + '-weights.hdf5' + '_subnet.hdf5')
 
 # tools for debugging
 def get_weight_grad(model, inputs, outputs):
