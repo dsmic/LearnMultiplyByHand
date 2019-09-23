@@ -57,7 +57,8 @@ def parser():
     parser.add_argument('--EarlyStop', dest='EarlyStop',  type=str, default='EarlyStop')
     parser.add_argument('--max_idx', dest='max_idx',  type=int, default=-1)
     parser.add_argument('--dense_img_num', dest='dense_img_num',  type=int, default=-1)
-    parser.add_argument('--binary_siamese', dest='binary_siamese', action='store_true')
+    parser.add_argument('--binary_siamese', dest='binary_siamese', action='store_true') #seems to be a bad idea
+    parser.add_argument('--square_siamese', dest='square_siamese', action='store_true')
 
     args = parser.parse_args()
 
@@ -415,7 +416,10 @@ if args.binary_siamese:
     prediction = Dense(1, name = 'dense_siamese')(L1_distance)
 else:
     # Add a customized layer to compute the absolute difference between the encodings
-    L1_layer = Lambda(lambda tensors:K.abs(tensors[0] - tensors[1]))
+    if args.square_siamese:
+        L1_layer = Lambda(lambda tensors:K.pow(tensors[0] - tensors[1], 2))
+    else:
+        L1_layer = Lambda(lambda tensors:K.abs(tensors[0] - tensors[1]))
     L1_distance = L1_layer([encoded_l, encoded_rb_scale])
     prediction = Dense(1, name = 'dense_siamese')(L1_distance)
 
