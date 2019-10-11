@@ -60,6 +60,7 @@ def parser():
     parser.add_argument('--dense_img_num', dest='dense_img_num',  type=int, default=-1)
     parser.add_argument('--binary_siamese', dest='binary_siamese', action='store_true') #seems to be a bad idea
     parser.add_argument('--square_siamese', dest='square_siamese', action='store_true')
+    parser.add_argument('--eta', dest='eta',  type=float, default=0)
 
     args = parser.parse_args()
 
@@ -443,6 +444,7 @@ class Dense_plasticity(Layer):
                activity_regularizer=None,
                kernel_constraint=None,
                bias_constraint=None,
+               eta = 0.0,
                **kwargs):
     if 'input_shape' not in kwargs and 'input_dim' in kwargs:
       kwargs['input_shape'] = (kwargs.pop('input_dim'),)
@@ -461,6 +463,7 @@ class Dense_plasticity(Layer):
 
     self.supports_masking = True
     self.input_spec = InputSpec(min_ndim=2)
+    self.eta = eta
 
   def build(self, input_shape):
     dtype = dtypes.as_dtype(self.dtype or K.floatx())
@@ -522,7 +525,15 @@ class Dense_plasticity(Layer):
       outputs = standard_ops.tensordot(inputs, self.kernel, [[rank - 1], [0]])
       outputs2 = standard_ops.tensordot(inputs, placticity, [[rank - 1], [0]])
       outputs = tf.add(outputs,outputs2)
-      # Reshape the output back to the original ndim of the input.
+
+      #plasticity management
+      inputs_1  = K.mean(tf.expand_dims(inputs,rank),axis=0)
+      outputs_1 = K.mean(tf.expand_dims(outputs,rank-1),axis=0)
+      v = tf.multiply(inputs_1, outputs_1)
+      while len(v.shape) >2:
+          v = K.mean(v,axis=0)
+      self.hebb.assign((1-self.eta)*self.hebb  + self.eta * v)
+
       if not context.executing_eagerly():
         shape = inputs.shape.as_list()
         output_shape = shape[:-1] + [self.units]
@@ -536,15 +547,29 @@ class Dense_plasticity(Layer):
       if K.is_sparse(inputs):
         outputs = sparse_ops.sparse_tensor_dense_matmul(inputs, self.kernel)
         outputs2 = sparse_ops.sparse_tensor_dense_matmul(inputs, placticity)
-        outputs.set_shape(output_shape)
+        outputs = tf.add(outputs,outputs2)
       else:
         outputs = gen_math_ops.mat_mul(inputs, self.kernel)
         outputs2 = gen_math_ops.mat_mul(inputs, placticity)
-        outputs.set_shape(output_shape)
+        outputs = tf.add(outputs,outputs2)
+
+      #plasticity management
+      inputs_1  = K.mean(tf.expand_dims(inputs,rank),axis=0)
+      outputs_1 = K.mean(tf.expand_dims(outputs,rank-1),axis=0)
+      self.hebb.assign((1-self.eta)*self.hebb  + self.eta * tf.multiply(inputs_1, outputs_1))
+
     if self.use_bias:
       outputs = nn.bias_add(outputs, self.bias)
+
+
+    #inputs_1  = K.mean(tf.expand_dims(inputs,rank),axis=0)
+    #outputs_1 = K.mean(tf.expand_dims(outputs,rank-1),axis=0)
+    #self.hebb.assign ( (1-self.eta)*self.hebb  + self.eta * tf.multiply(inputs_1, outputs_1))
+
+
     if self.activation is not None:
       return self.activation(outputs)  # pylint: disable=not-callable
+
     return outputs
 
   def compute_output_shape(self, input_shape):
@@ -591,7 +616,7 @@ pool5 = TimeDistributed(MaxPooling2D(pool_size = 2, name = 'pool_5'))(conv5)
 
 flat = TimeDistributed(Flatten())(pool5)
 if args.dense_img_num > 0:
-    x = TimeDistributed(Dense(args.dense_img_num, activation = 'sigmoid'))(flat)
+    x = TimeDistributed(Dense_plasticity(args.dense_img_num, eta = args.eta, activation = 'sigmoid'))(flat)
 else:
     if args.binary_siamese:
         x = Activation('sigmoid')(flat)
@@ -625,7 +650,7 @@ if args.binary_siamese:
     L1_layer = Lambda(lambda tensors:K.binary_crossentropy(tensors[0], tensors[1]))
     print(encoded_l,encoded_rb_scale)
     L1_distance = L1_layer([encoded_l, encoded_rb_scale])
-    prediction = Dense_plasticity(1, name = 'dense_siamese')(L1_distance)
+    prediction = Dense_plasticity(1, eta = args.eta, name = 'dense_siamese')(L1_distance)
 else:
     # Add a customized layer to compute the absolute difference between the encodings
     if args.square_siamese:
@@ -633,7 +658,7 @@ else:
     else:
         L1_layer = Lambda(lambda tensors:K.abs(tensors[0] - tensors[1]))
     L1_distance = L1_layer([encoded_l, encoded_rb_scale])
-    prediction = Dense_plasticity(1, name = 'dense_siamese')(L1_distance)
+    prediction = Dense_plasticity(1, eta = args.eta, name = 'dense_siamese')(L1_distance)
 
 # Connect the inputs with the outputs
 if args.load_subnet:
